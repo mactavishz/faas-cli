@@ -36,6 +36,9 @@ local-install:
 	   -X github.com/openfaas/faas-cli/version.GitCommit=${.GIT_COMMIT} \
 	   -X github.com/openfaas/faas-cli/version.Version=${.GIT_VERSION}" \
 	   
+.PHONY: clean
+clean:
+	rm -f $(GOBIN)/faas-cli
 
 .PHONY: dist
 dist:
