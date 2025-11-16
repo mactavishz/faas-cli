@@ -13,6 +13,13 @@ export GOFLAGS=-mod=vendor
 .PHONY: build
 build:
 	./build.sh
+	
+.PHONY: go-build
+go-build:
+	CGO_ENABLED=0 go build --ldflags "-s -w \
+	   -X github.com/openfaas/faas-cli/version.GitCommit=${.GIT_COMMIT} \
+	   -X github.com/openfaas/faas-cli/version.Version=${.GIT_VERSION}" \
+	    -o $(GOBIN)/faas-cli
 
 .PHONY: build_redist
 build_redist:

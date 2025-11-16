@@ -48,6 +48,7 @@ var (
 	imagePrefix  string
 	language     string
 	tlsInsecure  bool
+	platform     string
 )
 
 // Services parsed from stack file
@@ -74,6 +75,7 @@ func init() {
 	faasCmd.PersistentFlags().StringVarP(&yamlFile, "yaml", "f", "", "Path to YAML file describing function(s)")
 	faasCmd.PersistentFlags().StringVarP(&regex, "regex", "", "", "Regex to match with function names in YAML file")
 	faasCmd.PersistentFlags().StringVarP(&filter, "filter", "", "", "Wildcard to match with function names in YAML file")
+	faasCmd.PersistentFlags().StringVarP(&platform, "platform", "", "faasd", "Target platform: faasd or tinyfaas")
 
 	// Set Bash completion options
 	validYAMLFilenames := []string{"yaml", "yml"}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -104,6 +105,22 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	cliClient, err := proxy.NewClient(cliAuth, gatewayAddress, transport, nil)
 	if err != nil {
 		return err
+	}
+
+	if platform == "tinyfaas" {
+		// For tinyFaaS, use the simplified logs endpoint
+		logsReader, err := cliClient.GetFunctionLogsTinyFaaS(context.Background(), args[0], functionNamespace)
+		if err != nil {
+			return err
+		}
+		defer logsReader.Close()
+
+		// Read and print logs
+		_, err = io.Copy(os.Stdout, logsReader)
+		if err != nil {
+			return fmt.Errorf("error reading logs: %w", err)
+		}
+		return nil
 	}
 
 	logEvents, err := cliClient.GetLogs(context.Background(), logRequest)

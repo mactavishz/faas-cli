@@ -78,7 +78,14 @@ func runDelete(cmd *cobra.Command, args []string) error {
 			function.Name = k
 			fmt.Printf("Deleting: %s.%s\n", function.Name, function.Namespace)
 
-			proxyclient.DeleteFunction(ctx, function.Name, function.Namespace)
+			if platform == "tinyfaas" {
+				err := proxyclient.DeleteFunctionTinyFaaS(ctx, function.Name, function.Namespace)
+				if err != nil {
+					fmt.Printf("Error deleting function %s: %v\n", function.Name, err)
+				}
+			} else {
+				proxyclient.DeleteFunction(ctx, function.Name, function.Namespace)
+			}
 		}
 	} else {
 		if len(args) < 1 {
@@ -87,9 +94,17 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 		functionName = args[0]
 		fmt.Printf("Deleting: %s.%s\n", functionName, functionNamespace)
-		err := proxyclient.DeleteFunction(ctx, functionName, functionNamespace)
-		if err != nil {
-			return err
+
+		if platform == "tinyfaas" {
+			err := proxyclient.DeleteFunctionTinyFaaS(ctx, functionName, functionNamespace)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := proxyclient.DeleteFunction(ctx, functionName, functionNamespace)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

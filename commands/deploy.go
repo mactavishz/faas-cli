@@ -292,8 +292,15 @@ Error: %s`, fprocessErr.Error())
 			}
 		}
 	} else {
-		if len(image) == 0 || len(functionName) == 0 {
-			return fmt.Errorf("to deploy a function give --yaml/-f or a --image and --name flag")
+		var statusCode int
+		if platform == "tinyfaas" {
+			if len(functionName) == 0 {
+				return fmt.Errorf("to deploy a function to tinyFaaS you must provide a --name flag")
+			}
+		} else {
+			if len(image) == 0 || len(functionName) == 0 {
+				return fmt.Errorf("to deploy a function give --yaml/-f or a --image and --name flag")
+			}
 		}
 
 		gateway = getGatewayURL(gateway, defaultGateway, "", os.Getenv(openFaaSURLEnvironment))
@@ -306,28 +313,57 @@ Error: %s`, fprocessErr.Error())
 			return err
 		}
 
-		// default to a readable filesystem until we get more input about the expected behavior
-		// and if we want to add another flag for this case
-		defaultReadOnlyRFS := false
-		statusCode, err := deployImage(ctx,
-			proxyClient,
-			image,
-			fprocess,
-			functionName,
-			"",
-			deployFlags,
-			tlsInsecure,
-			defaultReadOnlyRFS,
-			token,
-			functionNamespace,
-			cpuRequest,
-			cpuLimit,
-			memoryRequest,
-			memoryLimit)
-		if err != nil {
-			return err
-		}
+		// Check if we're deploying to tinyFaaS
+		if platform == "tinyfaas" {
+			// For tinyFaaS, we need to zip the handler directory
+			if handler == "" {
+				failedStatusCodes[functionName] = http.StatusBadRequest
+				return fmt.Errorf("Error: handler is required for tinyFaaS deployment of function %s\n", functionName)
+			}
 
+			fmt.Printf("Packaging function handler from: %s\n", handler)
+			functionZip, err := util.ZipDirectory(handler)
+			if err != nil {
+				failedStatusCodes[functionName] = http.StatusInternalServerError
+				return fmt.Errorf("Error creating function zip for %s: %v\n", functionName, err)
+			}
+
+			envVars, err := compileEnvironment(deployFlags.envvarOpts, nil, nil)
+			if err != nil {
+				return err
+			}
+
+			var output string
+			deploySpec := &proxy.DeployFunctionSpec{
+				Language:     language,
+				FunctionName: functionName,
+				EnvVars:      envVars,
+			}
+			statusCode, output = proxyClient.DeployFunctionTinyFaaS(ctx, deploySpec, functionZip)
+			fmt.Println(output)
+		} else {
+			// default to a readable filesystem until we get more input about the expected behavior
+			// and if we want to add another flag for this case
+			defaultReadOnlyRFS := false
+			statusCode, err = deployImage(ctx,
+				proxyClient,
+				image,
+				fprocess,
+				functionName,
+				"",
+				deployFlags,
+				tlsInsecure,
+				defaultReadOnlyRFS,
+				token,
+				functionNamespace,
+				cpuRequest,
+				cpuLimit,
+				memoryRequest,
+				memoryLimit)
+			if err != nil {
+				return err
+			}
+		}
 		if badStatusCode(statusCode) {
 			failedStatusCodes[functionName] = statusCode
 		}

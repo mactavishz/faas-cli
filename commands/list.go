@@ -73,7 +73,14 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	functions, err := proxyClient.ListFunctions(context.Background(), functionNamespace)
+	var functions []types.FunctionStatus
+
+	if platform == "tinyfaas" {
+		functions, err = proxyClient.ListFunctionsTinyFaaS(context.Background(), functionNamespace)
+	} else {
+		functions, err = proxyClient.ListFunctions(context.Background(), functionNamespace)
+	}
+
 	if err != nil {
 		return err
 	}

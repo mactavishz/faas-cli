@@ -5,6 +5,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"encoding/hex"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/alexellis/hmac/v2"
+	"github.com/openfaas/faas-cli/proxy"
 	"github.com/openfaas/faas-cli/version"
 	"github.com/openfaas/go-sdk/stack"
 	"github.com/spf13/cobra"
@@ -137,6 +139,58 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 	if len(sigHeader) > 0 {
 		sig := generateSignature(functionInput, key)
 		httpHeader.Add(sigHeader, sig)
+	}
+
+	// Handle tinyFaaS invocation
+	if platform == "tinyfaas" {
+		gatewayAddress := getGatewayURL(gateway, defaultGateway, "", os.Getenv(openFaaSURLEnvironment))
+
+		cliAuth, err := proxy.NewCLIAuth(token, gatewayAddress)
+		if err != nil {
+			return err
+		}
+
+		transport := GetDefaultCLITransport(tlsInsecure, &commandTimeout)
+		proxyClient, err := proxy.NewClient(cliAuth, gatewayAddress, transport, &commandTimeout)
+		if err != nil {
+			return err
+		}
+
+		// Convert headers to map
+		headerMap := make(map[string]string)
+		for k, v := range httpHeader {
+			if len(v) > 0 {
+				headerMap[k] = v[0]
+			}
+		}
+
+		body := bytes.NewReader(functionInput)
+		res, err := proxyClient.InvokeFunctionTinyFaaS(context.Background(), functionName, functionNamespace, body, contentType, httpQuery, headerMap, invokeAsync, httpMethod)
+		if err != nil {
+			return fmt.Errorf("failed to invoke function: %s", err)
+		}
+		if res.Body != nil {
+			defer res.Body.Close()
+		}
+
+		if code := res.StatusCode; code < 200 || code > 299 {
+			resBody, err := io.ReadAll(res.Body)
+			if err != nil {
+				return fmt.Errorf("cannot read result from tinyFaaS: %s", err)
+			}
+			return fmt.Errorf("server returned unexpected status code: %d - %s", res.StatusCode, string(resBody))
+		}
+
+		if invokeAsync && res.StatusCode == http.StatusAccepted {
+			fmt.Fprintf(os.Stderr, "Function submitted asynchronously.\n")
+			return nil
+		}
+
+		if _, err := io.Copy(os.Stdout, res.Body); err != nil {
+			return fmt.Errorf("cannot read result from tinyFaaS: %s", err)
+		}
+
+		return nil
 	}
 
 	client, err := GetDefaultSDKClient()
