@@ -2,6 +2,7 @@ package util
 
 import (
 	"archive/zip"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -66,8 +67,8 @@ func MergeSlice(values []string, overlay []string) []string {
 // ZipDirectory creates a zip archive of the specified directory
 func ZipDirectory(sourceDir string) ([]byte, error) {
 	// Create a buffer to write our archive to.
-	buf := new(strings.Builder)
-	zipWriter := zip.NewWriter(&stringWriterAdapter{buf})
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
 
 	// Walk through the directory
 	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
@@ -75,32 +76,52 @@ func ZipDirectory(sourceDir string) ([]byte, error) {
 			return err
 		}
 
-		// Skip directories
-		if info.IsDir() {
-			return nil
-		}
-
-		// Get the relative path
+		// Compute relative path; skip root as ".".
 		relPath, err := filepath.Rel(sourceDir, path)
 		if err != nil {
 			return err
 		}
+		if relPath == "." {
+			return nil
+		}
 
-		// Create a new file in the zip archive
-		zipFile, err := zipWriter.Create(relPath)
+		// Use forward slashes in zip.
+		relPath = filepath.ToSlash(relPath)
+
+		// Create a zip header from file info to preserve metadata.
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+
+		if info.IsDir() {
+			// Ensure directory entries end with a slash.
+			if !strings.HasSuffix(header.Name, "/") {
+				header.Name += "/"
+			}
+			header.Method = zip.Store
+			_, err = zipWriter.CreateHeader(header)
+			return err
+		}
+
+		// For files, use deflate compression.
+		header.Method = zip.Deflate
+
+		headerWriter, err := zipWriter.CreateHeader(header)
 		if err != nil {
 			return err
 		}
 
 		// Open the source file
-		srcFile, err := os.Open(path)
+		f, err := os.Open(path)
 		if err != nil {
 			return err
 		}
-		defer srcFile.Close()
+		defer f.Close()
 
 		// Copy the file content to the zip
-		_, err = io.Copy(zipFile, srcFile)
+		_, err = io.Copy(headerWriter, f)
 		return err
 	})
 
@@ -109,19 +130,9 @@ func ZipDirectory(sourceDir string) ([]byte, error) {
 	}
 
 	// Close the zip writer
-	err = zipWriter.Close()
-	if err != nil {
+	if err := zipWriter.Close(); err != nil {
 		return nil, fmt.Errorf("error closing zip writer: %w", err)
 	}
 
-	return []byte(buf.String()), nil
-}
-
-// stringWriterAdapter adapts strings.Builder to io.Writer
-type stringWriterAdapter struct {
-	*strings.Builder
-}
-
-func (w *stringWriterAdapter) Write(p []byte) (n int, err error) {
-	return w.Builder.Write(p)
+	return buf.Bytes(), nil
 }
