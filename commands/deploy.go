@@ -223,7 +223,7 @@ func runDeployCommand(args []string, image string, fprocess string, functionName
 				return envErr
 			}
 
-			if readTemplate {
+			if readTemplate && platform != "tinyfaas" {
 				// Get FProcess to use from the ./template/template.yml, if a template is being used
 				if languageExistsNotDockerfile(function.Language) {
 					var fprocessErr error
@@ -283,10 +283,35 @@ Error: %s`, fprocessErr.Error())
 				Namespace:               function.Namespace,
 			}
 
-			if msg := checkTLSInsecure(services.Provider.GatewayURL, deploySpec.TLSInsecure); len(msg) > 0 {
-				fmt.Println(msg)
+			// Check if deploying to tinyFaaS
+			var statusCode int
+			if platform == "tinyfaas" {
+				// For tinyFaaS, we need to zip the handler directory
+				if function.Handler == "" {
+					failedStatusCodes[k] = http.StatusBadRequest
+					fmt.Printf("Error: handler is required for tinyFaaS deployment of function %s\n", function.Name)
+					continue
+				}
+
+				fmt.Printf("Packaging function handler from: %s\n", function.Handler)
+				functionZip, err := util.ZipDirectory(function.Handler)
+				if err != nil {
+					failedStatusCodes[k] = http.StatusInternalServerError
+					fmt.Printf("Error creating function zip for %s: %v\n", function.Name, err)
+					continue
+				}
+
+				var output string
+				statusCode, output = proxyClient.DeployFunctionTinyFaaS(ctx, deploySpec, functionZip)
+				fmt.Println(output)
+			} else {
+				// Standard OpenFaaS/faasd deployment
+				if msg := checkTLSInsecure(services.Provider.GatewayURL, deploySpec.TLSInsecure); len(msg) > 0 {
+					fmt.Println(msg)
+				}
+				statusCode = proxyClient.DeployFunction(ctx, deploySpec)
 			}
-			statusCode := proxyClient.DeployFunction(ctx, deploySpec)
+
 			if badStatusCode(statusCode) {
 				failedStatusCodes[k] = statusCode
 			}

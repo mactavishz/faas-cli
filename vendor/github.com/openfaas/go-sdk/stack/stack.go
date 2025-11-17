@@ -20,7 +20,8 @@ import (
 )
 
 const legacyProviderName = "faas"
-const providerName = "openfaas"
+const providerOpenFaaS = "openfaas"
+const providerTinyFaaS = "tinyfaas"
 const defaultSchemaVersion = "1.0"
 
 // ValidSchemaVersions available schema versions
@@ -95,8 +96,8 @@ func ParseYAMLData(fileData []byte, regex string, filter string, envsubst bool) 
 		}
 	}
 
-	if services.Provider.Name != providerName {
-		return nil, fmt.Errorf(`['%s'] is the only valid "provider.name" for the OpenFaaS CLI, but you gave: %s`, providerName, services.Provider.Name)
+	if services.Provider.Name != providerOpenFaaS && services.Provider.Name != providerTinyFaaS {
+		return nil, fmt.Errorf(`['%s'] or ['%s'] is the only valid "provider.name" for the OpenFaaS CLI, but you gave: %s`, providerOpenFaaS, providerTinyFaaS, services.Provider.Name)
 	}
 
 	if len(services.Version) > 0 && !IsValidSchemaVersion(services.Version) {
