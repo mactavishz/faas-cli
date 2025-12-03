@@ -81,12 +81,10 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
-github.com/openfaas/faas-provider v0.25.8 h1:3W1ZyhUvpqTOiNQoV7jzdZhDJeJJlJelosAtjFzMNyw=
-github.com/openfaas/faas-provider v0.25.8/go.mod h1:rMXbj+AYVpn82UoHIOgWHiDeV118t0bSxyoC9d00jpc=
+github.com/openfaas/faas-provider v0.25.9 h1:Y4m5fGm3pu6bUdIm2pNhXC0JWdkoWcVkfuGI3tUYDMQ=
+github.com/openfaas/faas-provider v0.25.9/go.mod h1:rMXbj+AYVpn82UoHIOgWHiDeV118t0bSxyoC9d00jpc=
 github.com/openfaas/faas/gateway v0.0.0-20250422101858-7803ea1861f2 h1:Reu1wD3BZ/+t+cCnWGYUuFREa8cC7/01tirlkc5rUmk=
 github.com/openfaas/faas/gateway v0.0.0-20250422101858-7803ea1861f2/go.mod h1:j5eUH36/clgztwBYFoXZ/s1UFQ9Alzt8rb50gh7L5Ns=
-github.com/openfaas/go-sdk v0.2.19 h1:L31+TzyKGMaRx56gDZQNE9mhAwWHq1WUsMY3ApjIOTo=
-github.com/openfaas/go-sdk v0.2.19/go.mod h1:9fPkKnpOt48xsRB9+fS5BoCnumbdtKAnWift0BupclU=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
