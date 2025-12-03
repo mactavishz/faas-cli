@@ -187,11 +187,11 @@ func (c *Client) GetFunctionLogsTinyFaaS(context context.Context, functionName s
 
 // InvokeFunctionTinyFaaS invokes a function on tinyFaaS via the rproxy
 func (c *Client) InvokeFunctionTinyFaaS(context context.Context, functionName, namespace string, body io.Reader, contentType string, query url.Values, headers map[string]string, async bool, httpMethod string) (*http.Response, error) {
-	// For tinyFaaS, we need to invoke via the rproxy endpoint
-	// The gateway URL should point to the rproxy (e.g., http://localhost:8000)
-	// and we invoke functions at /<function-name>
+	// For tinyFaaS, we need to invoke via the API gateway
+	// The gateway URL should point to the API gateway (e.g., http://localhost:8888)
+	// and we invoke functions at /fn/<function-name>
 
-	functionPath := fmt.Sprintf("/%s", functionName)
+	functionPath := fmt.Sprintf("/fn/%s", functionName)
 
 	req, err := c.newRequest(httpMethod, functionPath, query, body)
 	if err != nil {
