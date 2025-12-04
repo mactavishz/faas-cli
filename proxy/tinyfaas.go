@@ -48,6 +48,9 @@ func (c *Client) DeployFunctionTinyFaaS(context context.Context, spec *DeployFun
 	case "node":
 		spec.Language = "nodejs"
 	case "nodejs":
+	case "go":
+	case "golang":
+		spec.Language = "go"
 	default:
 		return http.StatusBadRequest, fmt.Sprintf("Unsupported language for tinyFaaS: %s", spec.Language)
 	}
