@@ -68,7 +68,7 @@ func (c *Client) DeployFunctionTinyFaaS(context context.Context, spec *DeployFun
 		return http.StatusInternalServerError, fmt.Sprintf("Error marshaling request: %s", err)
 	}
 
-	req, err := c.newRequest(http.MethodPost, "/upload", nil, bytes.NewReader(body))
+	req, err := c.newRequest(http.MethodPost, "/system/upload", nil, bytes.NewReader(body))
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Sprintf("Error creating request: %s", err)
 	}
@@ -102,7 +102,7 @@ func (c *Client) DeleteFunctionTinyFaaS(context context.Context, functionName st
 		return fmt.Errorf("error marshaling request: %s", err)
 	}
 
-	req, err := c.newRequest(http.MethodPost, "/delete", nil, bytes.NewReader(body))
+	req, err := c.newRequest(http.MethodPost, "/system/delete", nil, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("error creating request: %s", err)
 	}
@@ -118,13 +118,12 @@ func (c *Client) DeleteFunctionTinyFaaS(context context.Context, functionName st
 		return fmt.Errorf("tinyFaaS returned error (status %d): %s", res.StatusCode, string(responseBody))
 	}
 
-	fmt.Printf("Function %s deleted successfully\n", functionName)
 	return nil
 }
 
 // ListFunctionsTinyFaaS lists functions from tinyFaaS
 func (c *Client) ListFunctionsTinyFaaS(context context.Context, namespace string) ([]types.FunctionStatus, error) {
-	req, err := c.newRequest(http.MethodGet, "/list", nil, nil)
+	req, err := c.newRequest(http.MethodGet, "/system/list", nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %s", err)
 	}
@@ -169,7 +168,7 @@ func (c *Client) GetFunctionLogsTinyFaaS(context context.Context, functionName s
 		query.Set("name", functionName)
 	}
 
-	req, err := c.newRequest(http.MethodGet, "/logs", query, nil)
+	req, err := c.newRequest(http.MethodGet, "/system/logs", query, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %s", err)
 	}
