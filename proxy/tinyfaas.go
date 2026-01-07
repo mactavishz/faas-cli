@@ -211,7 +211,7 @@ func (c *Client) InvokeFunctionTinyFaaS(context context.Context, functionName, n
 
 	// Handle async invocation
 	if async {
-		req.Header.Set("X-tinyFaaS-Async", "true")
+		req.Header.Set("X-Tinyfaas-Async", "true")
 	}
 
 	res, err := c.httpClient.Do(req)
