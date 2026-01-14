@@ -5,6 +5,7 @@ package commands
 
 import (
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -88,5 +89,61 @@ func Test_badStatusCOde(t *testing.T) {
 	if !(badStatusCode(badStatusC)) {
 		t.Errorf("\nUnexpected status code - wanted: %d but got %d or %d", badStatusC, acceptedStatusCode, okStatusCode)
 		t.Fail()
+	}
+}
+
+func Test_resolveHandlerPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		yamlFile    string
+		handlerPath string
+		expected    string
+	}{
+		{
+			name:        "empty yaml file returns handler as-is",
+			yamlFile:    "",
+			handlerPath: "./handler",
+			expected:    "./handler",
+		},
+		{
+			name:        "absolute handler path returns as-is",
+			yamlFile:    "/some/path/stack.yml",
+			handlerPath: "/absolute/handler",
+			expected:    "/absolute/handler",
+		},
+		{
+			name:        "relative handler resolved from yaml directory",
+			yamlFile:    "tests/workflows/tinyfaas/linear3/stack.yml",
+			handlerPath: "./a",
+			expected:    filepath.Join("tests/workflows/tinyfaas/linear3", "./a"),
+		},
+		{
+			name:        "handler without ./ prefix",
+			yamlFile:    "dir/stack.yml",
+			handlerPath: "handler",
+			expected:    filepath.Join("dir", "handler"),
+		},
+		{
+			name:        "parent directory reference",
+			yamlFile:    "project/configs/stack.yml",
+			handlerPath: "../functions/a",
+			expected:    filepath.Join("project/configs", "../functions/a"),
+		},
+		{
+			name:        "yaml file in current directory",
+			yamlFile:    "stack.yml",
+			handlerPath: "./c",
+			expected:    filepath.Join(".", "./c"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := resolveHandlerPath(tt.yamlFile, tt.handlerPath)
+			if result != tt.expected {
+				t.Errorf("resolveHandlerPath(%q, %q) = %q; want %q",
+					tt.yamlFile, tt.handlerPath, result, tt.expected)
+			}
+		})
 	}
 }

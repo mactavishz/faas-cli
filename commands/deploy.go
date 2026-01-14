@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -253,7 +254,10 @@ Error: %s`, fprocessErr.Error())
 
 			allAnnotations := util.MergeMap(annotations, annotationArgs)
 
-			branch, sha, err := builder.GetImageTagValues(tagMode, function.Handler)
+			// Resolve handler path relative to stack file directory
+			resolvedHandler := resolveHandlerPath(yamlFile, function.Handler)
+
+			branch, sha, err := builder.GetImageTagValues(tagMode, resolvedHandler)
 			if err != nil {
 				return err
 			}
@@ -293,8 +297,8 @@ Error: %s`, fprocessErr.Error())
 					continue
 				}
 
-				fmt.Printf("Packaging function handler from: %s\n", function.Handler)
-				functionZip, err := util.ZipDirectory(function.Handler)
+				fmt.Printf("Packaging function handler from: %s\n", resolvedHandler)
+				functionZip, err := util.ZipDirectory(resolvedHandler)
 				if err != nil {
 					failedStatusCodes[k] = http.StatusInternalServerError
 					fmt.Printf("Error creating function zip for %s: %v\n", function.Name, err)
@@ -558,4 +562,14 @@ func deployFailed(status map[string]int) error {
 
 func badStatusCode(statusCode int) bool {
 	return statusCode != http.StatusAccepted && statusCode != http.StatusOK
+}
+
+// resolveHandlerPath resolves the handler path relative to the stack file directory.
+// If yamlFilePath is empty or handlerPath is absolute, handlerPath is returned as-is.
+func resolveHandlerPath(yamlFilePath, handlerPath string) string {
+	if yamlFilePath == "" || filepath.IsAbs(handlerPath) {
+		return handlerPath
+	}
+	stackDir := filepath.Dir(yamlFilePath)
+	return filepath.Join(stackDir, handlerPath)
 }
