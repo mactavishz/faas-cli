@@ -9,18 +9,24 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 
 	types "github.com/openfaas/faas-provider/types"
 )
 
+type tinyFaaSResources struct {
+	CPU    string `json:"cpu,omitempty"`
+	Memory string `json:"memory,omitempty"`
+}
+
 // TinyFaaSUploadRequest defines the request structure for tinyFaaS upload
 type TinyFaaSUploadRequest struct {
-	FunctionName    string   `json:"name"`
-	FunctionEnv     string   `json:"env"`
-	FunctionThreads int      `json:"threads"`
-	FunctionZip     string   `json:"zip"`
-	FunctionEnvs    []string `json:"envs"`
+	FunctionName     string             `json:"name"`
+	FunctionEnv      string             `json:"env"`
+	FunctionReplicas int                `json:"replicas"`
+	FunctionZip      string             `json:"zip"`
+	FunctionEnvs     []string           `json:"envs"`
+	FunctionLabels   map[string]string  `json:"labels,omitempty"`
+	Limits           *tinyFaaSResources `json:"limits,omitempty"`
 }
 
 // TinyFaaSDeleteRequest defines the request structure for tinyFaaS delete
@@ -56,11 +62,17 @@ func (c *Client) DeployFunctionTinyFaaS(context context.Context, spec *DeployFun
 	}
 
 	uploadReq := TinyFaaSUploadRequest{
-		FunctionName:    spec.FunctionName,
-		FunctionEnv:     spec.Language,
-		FunctionThreads: 1,
-		FunctionZip:     zipBase64,
-		FunctionEnvs:    envs,
+		FunctionName:     spec.FunctionName,
+		FunctionEnv:      spec.Language,
+		FunctionReplicas: 1,
+		FunctionZip:      zipBase64,
+		FunctionEnvs:     envs,
+		FunctionLabels:   spec.Labels,
+	}
+
+	// No support of requests in tinyFaaS, only limits
+	if spec.FunctionResourceRequest.Limits != nil {
+		uploadReq.Limits = &tinyFaaSResources{CPU: spec.FunctionResourceRequest.Limits.CPU, Memory: spec.FunctionResourceRequest.Limits.Memory}
 	}
 
 	body, err := json.Marshal(uploadReq)
@@ -138,24 +150,24 @@ func (c *Client) ListFunctionsTinyFaaS(context context.Context, namespace string
 		return nil, fmt.Errorf("tinyFaaS returned error status: %d", res.StatusCode)
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response: %s", err)
+	var listed []struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&listed); err != nil {
+		return nil, fmt.Errorf("error decoding list response: %w", err)
 	}
 
-	// Parse the response - tinyFaaS returns function names line by line
-	functionNames := strings.Split(strings.TrimSpace(string(body)), "\n")
-
-	var functions []types.FunctionStatus
-	for _, name := range functionNames {
-		if name != "" {
-			functions = append(functions, types.FunctionStatus{
-				Name:              name,
-				Namespace:         namespace,
-				Replicas:          1,
-				AvailableReplicas: 1,
-			})
+	functions := make([]types.FunctionStatus, 0, len(listed))
+	for _, fn := range listed {
+		if fn.Name == "" {
+			continue
 		}
+		functions = append(functions, types.FunctionStatus{
+			Name:              fn.Name,
+			Namespace:         namespace,
+			Replicas:          1,
+			AvailableReplicas: 1,
+		})
 	}
 
 	return functions, nil
