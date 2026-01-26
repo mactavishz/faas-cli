@@ -489,6 +489,8 @@ func readFiles(files []string) (map[string]string, error) {
 	envs := make(map[string]string)
 
 	for _, file := range files {
+		// Resolve file path relative to stack file directory
+		file = resolveHandlerPath(yamlFile, file)
 		bytesOut, err := os.ReadFile(file)
 		if err != nil {
 			return nil, err
