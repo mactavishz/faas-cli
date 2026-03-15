@@ -151,6 +151,13 @@ func runDeployCommand(args []string, image string, fprocess string, functionName
 		return fmt.Errorf("cannot specify --update and --replace at the same time")
 	}
 
+	// Use a longer default timeout for tinyFaaS deploys since image builds
+	// happen server-side and can easily exceed the standard 60s timeout.
+	if platform == "tinyfaas" && timeoutOverride == commandTimeout {
+		timeoutOverride = 10 * time.Minute
+		fmt.Printf("Using extended deploy timeout for tinyFaaS: %s (override with --timeout)\n", timeoutOverride)
+	}
+
 	var services stack.Services
 	if len(yamlFile) > 0 {
 		parsedServices, err := stack.ParseYAMLFile(yamlFile, regex, filter, envsubst)
@@ -337,7 +344,7 @@ Error: %s`, fprocessErr.Error())
 		if err != nil {
 			return err
 		}
-		proxyClient, err := proxy.NewClient(cliAuth, gateway, transport, &commandTimeout)
+		proxyClient, err := proxy.NewClient(cliAuth, gateway, transport, &timeoutOverride)
 		if err != nil {
 			return err
 		}
