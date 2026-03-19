@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 
 	"github.com/openfaas/faas-cli/proxy"
 	"github.com/openfaas/faas-provider/types"
@@ -112,15 +113,23 @@ func runList(cmd *cobra.Command, args []string) error {
 			// if len(function.Image) > 40 {
 			// 	functionImage = functionImage[0:38] + ".."
 			// }
-			fmt.Printf("%-30s\t%-"+fmt.Sprintf("%d", maxWidth)+"s\t%-15d\t%-5d\t\t%-5s\n", function.Name, functionImage, int64(function.InvocationCount), function.Replicas, function.CreatedAt.String())
+			fmt.Printf("%-30s\t%-"+fmt.Sprintf("%d", maxWidth)+"s\t%-15d\t%-5s\t\t%-5s\n", function.Name, functionImage, int64(function.InvocationCount), formatListReplicas(function), function.CreatedAt.String())
 		}
 	} else {
 		fmt.Printf("%-30s\t%-15s\t%-5s\n", "Function", "Invocations", "Replicas")
 		for _, function := range functions {
-			fmt.Printf("%-30s\t%-15d\t%-5d\n", function.Name, int64(function.InvocationCount), function.Replicas)
+			fmt.Printf("%-30s\t%-15d\t%-5s\n", function.Name, int64(function.InvocationCount), formatListReplicas(function))
 		}
 	}
 	return nil
+}
+
+func formatListReplicas(function types.FunctionStatus) string {
+	if platform == "tinyfaas" {
+		return fmt.Sprintf("%d/%d", function.AvailableReplicas, function.Replicas)
+	}
+
+	return strconv.FormatUint(function.Replicas, 10)
 }
 
 type byName []types.FunctionStatus

@@ -151,7 +151,9 @@ func (c *Client) ListFunctionsTinyFaaS(context context.Context, namespace string
 	}
 
 	var listed []struct {
-		Name string `json:"name"`
+		Name     string `json:"name"`
+		Replicas int    `json:"replicas"`
+		Running  bool   `json:"running"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&listed); err != nil {
 		return nil, fmt.Errorf("error decoding list response: %w", err)
@@ -162,11 +164,22 @@ func (c *Client) ListFunctionsTinyFaaS(context context.Context, namespace string
 		if fn.Name == "" {
 			continue
 		}
+
+		desiredReplicas := fn.Replicas
+		if desiredReplicas < 0 {
+			desiredReplicas = 0
+		}
+
+		availableReplicas := 0
+		if fn.Running {
+			availableReplicas = desiredReplicas
+		}
+
 		functions = append(functions, types.FunctionStatus{
 			Name:              fn.Name,
 			Namespace:         namespace,
-			Replicas:          1,
-			AvailableReplicas: 1,
+			Replicas:          uint64(desiredReplicas),
+			AvailableReplicas: uint64(availableReplicas),
 		})
 	}
 
