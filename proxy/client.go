@@ -59,6 +59,15 @@ func NewClient(auth ClientAuth, gatewayURL string, transport http.RoundTripper, 
 
 // newRequest create a new HTTP request with authentication
 func (c *Client) newRequest(method, path string, query url.Values, body io.Reader) (*http.Request, error) {
+	return c.newRequestWithOptions(method, path, query, body, "application/json", true)
+
+}
+
+func (c *Client) newRequestWithContentType(method, path string, query url.Values, body io.Reader, contentType string) (*http.Request, error) {
+	return c.newRequestWithOptions(method, path, query, body, contentType, false)
+}
+
+func (c *Client) newRequestWithOptions(method, path string, query url.Values, body io.Reader, contentType string, includeBodyDebug bool) (*http.Request, error) {
 
 	// deep copy gateway url and then add the supplied path  and args to the copy so that
 	// we preserve the original gateway URL as much as possible
@@ -71,7 +80,7 @@ func (c *Client) newRequest(method, path string, query url.Values, body io.Reade
 	endpoint.RawQuery = query.Encode()
 
 	bodyDebug := ""
-	if os.Getenv("FAAS_DEBUG") == "1" {
+	if os.Getenv("FAAS_DEBUG") == "1" && includeBodyDebug {
 
 		if body != nil {
 			r := io.NopCloser(body)
@@ -90,8 +99,8 @@ func (c *Client) newRequest(method, path string, query url.Values, body io.Reade
 		return nil, err
 	}
 
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if body != nil && contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	if c.UserAgent != "" {

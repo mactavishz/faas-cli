@@ -4,7 +4,13 @@
 package commands
 
 import (
+	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -13,6 +19,142 @@ import (
 
 	"github.com/openfaas/faas-cli/test"
 )
+
+func prepareTinyFaaSDeployTest(t *testing.T) {
+	t.Helper()
+
+	oldPlatform := platform
+	oldHandler := handler
+	oldImage := image
+	oldLanguage := language
+	oldFunctionName := functionName
+	oldYAMLFile := yamlFile
+	oldRegex := regex
+	oldFilter := filter
+	oldGateway := gateway
+	oldFunctionNamespace := functionNamespace
+	oldToken := token
+	oldTLSInsecure := tlsInsecure
+	oldTimeoutOverride := timeoutOverride
+	oldReadTemplate := readTemplate
+	oldDeployFlags := deployFlags
+	oldServices := services
+	oldCPURequest := cpuRequest
+	oldCPULimit := cpuLimit
+	oldMemoryRequest := memoryRequest
+	oldMemoryLimit := memoryLimit
+
+	t.Cleanup(func() {
+		platform = oldPlatform
+		handler = oldHandler
+		image = oldImage
+		language = oldLanguage
+		functionName = oldFunctionName
+		yamlFile = oldYAMLFile
+		regex = oldRegex
+		filter = oldFilter
+		gateway = oldGateway
+		functionNamespace = oldFunctionNamespace
+		token = oldToken
+		tlsInsecure = oldTLSInsecure
+		timeoutOverride = oldTimeoutOverride
+		readTemplate = oldReadTemplate
+		deployFlags = oldDeployFlags
+		services = oldServices
+		cpuRequest = oldCPURequest
+		cpuLimit = oldCPULimit
+		memoryRequest = oldMemoryRequest
+		memoryLimit = oldMemoryLimit
+	})
+
+	resetForTest()
+	platform = "faasd"
+	handler = ""
+	image = ""
+	language = ""
+	functionName = ""
+	gateway = ""
+	functionNamespace = ""
+	token = ""
+	tlsInsecure = false
+	timeoutOverride = commandTimeout
+	readTemplate = true
+	deployFlags = DeployFlags{}
+	services = nil
+	cpuRequest = ""
+	cpuLimit = ""
+	memoryRequest = ""
+	memoryLimit = ""
+}
+
+func newTinyFaaSUploadServer(t *testing.T, expectedName string) (*httptest.Server, *int) {
+	t.Helper()
+
+	count := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/system/upload" {
+			t.Fatalf("expected /system/upload, got %s", r.URL.Path)
+		}
+
+		mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("failed to parse content type: %v", err)
+		}
+		if mediaType != "multipart/form-data" {
+			t.Fatalf("expected multipart/form-data, got %s", mediaType)
+		}
+
+		reader := multipart.NewReader(r.Body, params["boundary"])
+		seenMetadata := false
+		seenZip := false
+
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("failed to read multipart request: %v", err)
+			}
+
+			switch part.FormName() {
+			case "metadata":
+				seenMetadata = true
+				var metadata struct {
+					Name string `json:"name"`
+				}
+				if err := json.NewDecoder(part).Decode(&metadata); err != nil {
+					t.Fatalf("failed to decode metadata: %v", err)
+				}
+				if metadata.Name != expectedName {
+					t.Fatalf("expected function %s, got %s", expectedName, metadata.Name)
+				}
+			case "zip":
+				seenZip = true
+				payload, err := io.ReadAll(part)
+				if err != nil {
+					t.Fatalf("failed to read zip part: %v", err)
+				}
+				if len(payload) == 0 {
+					t.Fatal("expected non-empty zip payload")
+				}
+			}
+		}
+
+		if !seenMetadata || !seenZip {
+			t.Fatalf("expected metadata and zip parts, got metadata=%v zip=%v", seenMetadata, seenZip)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Function " + expectedName + " deployed\n"))
+	}))
+
+	return server, &count
+}
 
 func Test_deploy(t *testing.T) {
 	s := test.MockHttpServer(t, []test.Request{
@@ -145,5 +287,95 @@ func Test_resolveHandlerPath(t *testing.T) {
 					tt.yamlFile, tt.handlerPath, result, tt.expected)
 			}
 		})
+	}
+}
+
+func Test_deployTinyFaaS_WithHandler(t *testing.T) {
+	prepareTinyFaaSDeployTest(t)
+	handlerDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(handlerDir, "handler.py"), []byte("print('hello')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server, requestCount := newTinyFaaSUploadServer(t, "test-function")
+	defer server.Close()
+
+	var err error
+	stdOut := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"deploy",
+			"--platform=tinyfaas",
+			"--gateway=" + server.URL,
+			"--name=test-function",
+			"--lang=python",
+			"--handler=" + handlerDir,
+		})
+		err = faasCmd.Execute()
+	})
+
+	if err != nil {
+		t.Fatalf("expected deploy to succeed, got error: %v", err)
+	}
+	if *requestCount != 1 {
+		t.Fatalf("expected 1 upload request, got %d", *requestCount)
+	}
+	if !strings.Contains(stdOut, "Packaging function handler from: "+handlerDir) {
+		t.Fatalf("expected handler packaging output, got: %s", stdOut)
+	}
+	if !strings.Contains(stdOut, "Function test-function deployed successfully") {
+		t.Fatalf("expected deploy success output, got: %s", stdOut)
+	}
+}
+
+func Test_deployTinyFaaS_WithYAML(t *testing.T) {
+	prepareTinyFaaSDeployTest(t)
+	projectDir := t.TempDir()
+	handlerDir := filepath.Join(projectDir, "handler")
+	if err := os.Mkdir(handlerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(handlerDir, "handler.py"), []byte("print('hello')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stackYAML := strings.Join([]string{
+		"provider:",
+		"  name: openfaas",
+		"functions:",
+		"  yaml-function:",
+		"    lang: python",
+		"    handler: ./handler",
+		"    image: example/yaml-function:latest",
+	}, "\n")
+	stackPath := filepath.Join(projectDir, "stack.yml")
+	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server, requestCount := newTinyFaaSUploadServer(t, "yaml-function")
+	defer server.Close()
+
+	var err error
+	stdOut := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"deploy",
+			"--platform=tinyfaas",
+			"--gateway=" + server.URL,
+			"--yaml=" + stackPath,
+		})
+		err = faasCmd.Execute()
+	})
+
+	if err != nil {
+		t.Fatalf("expected YAML deploy to succeed, got error: %v", err)
+	}
+	if *requestCount != 1 {
+		t.Fatalf("expected 1 upload request, got %d", *requestCount)
+	}
+	if !strings.Contains(stdOut, "Packaging function handler from: "+filepath.Join(projectDir, "./handler")) {
+		t.Fatalf("expected YAML handler packaging output, got: %s", stdOut)
+	}
+	if !strings.Contains(stdOut, "Function yaml-function deployed successfully") {
+		t.Fatalf("expected deploy success output, got: %s", stdOut)
 	}
 }

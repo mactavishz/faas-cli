@@ -64,14 +64,8 @@ func MergeSlice(values []string, overlay []string) []string {
 	return results
 }
 
-// ZipDirectory creates a zip archive of the specified directory
-func ZipDirectory(sourceDir string) ([]byte, error) {
-	// Create a buffer to write our archive to.
-	var buf bytes.Buffer
-	zipWriter := zip.NewWriter(&buf)
-
-	// Walk through the directory
-	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+func writeZipDirectory(sourceDir string, zipWriter *zip.Writer) error {
+	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -125,13 +119,30 @@ func ZipDirectory(sourceDir string) ([]byte, error) {
 		return err
 	})
 
-	if err != nil {
-		return nil, fmt.Errorf("error walking directory: %w", err)
+}
+
+// WriteZipDirectory writes a zip archive of the specified directory to the given writer.
+func WriteZipDirectory(writer io.Writer, sourceDir string) error {
+	zipWriter := zip.NewWriter(writer)
+
+	if err := writeZipDirectory(sourceDir, zipWriter); err != nil {
+		_ = zipWriter.Close()
+		return fmt.Errorf("error walking directory: %w", err)
 	}
 
-	// Close the zip writer
 	if err := zipWriter.Close(); err != nil {
-		return nil, fmt.Errorf("error closing zip writer: %w", err)
+		return fmt.Errorf("error closing zip writer: %w", err)
+	}
+
+	return nil
+}
+
+// ZipDirectory creates a zip archive of the specified directory.
+func ZipDirectory(sourceDir string) ([]byte, error) {
+	var buf bytes.Buffer
+
+	if err := WriteZipDirectory(&buf, sourceDir); err != nil {
+		return nil, err
 	}
 
 	return buf.Bytes(), nil

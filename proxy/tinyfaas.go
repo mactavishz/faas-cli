@@ -3,13 +3,16 @@ package proxy
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"sort"
 
+	"github.com/openfaas/faas-cli/util"
 	types "github.com/openfaas/faas-provider/types"
 )
 
@@ -18,12 +21,11 @@ type tinyFaaSResources struct {
 	Memory string `json:"memory,omitempty"`
 }
 
-// TinyFaaSUploadRequest defines the request structure for tinyFaaS upload
-type TinyFaaSUploadRequest struct {
+// TinyFaaSUploadMetadata defines the metadata part for tinyFaaS uploads.
+type TinyFaaSUploadMetadata struct {
 	FunctionName     string             `json:"name"`
 	FunctionEnv      string             `json:"env"`
 	FunctionReplicas int                `json:"replicas"`
-	FunctionZip      string             `json:"zip"`
 	FunctionEnvs     []string           `json:"envs"`
 	FunctionLabels   map[string]string  `json:"labels,omitempty"`
 	Limits           *tinyFaaSResources `json:"limits,omitempty"`
@@ -34,16 +36,70 @@ type TinyFaaSDeleteRequest struct {
 	FunctionName string `json:"name"`
 }
 
-// DeployFunctionTinyFaaS deploys a function to tinyFaaS
-func (c *Client) DeployFunctionTinyFaaS(context context.Context, spec *DeployFunctionSpec, functionZip []byte) (int, string) {
-	// Convert environment variables to tinyFaaS format
-	envs := []string{}
-	for k, v := range spec.EnvVars {
-		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+func buildTinyFaaSUploadBody(metadata TinyFaaSUploadMetadata, handlerDir string) (*io.PipeReader, string, <-chan error) {
+	reader, writer := io.Pipe()
+	multipartWriter := multipart.NewWriter(writer)
+	contentType := multipartWriter.FormDataContentType()
+	errCh := make(chan error, 1)
+
+	go func() {
+		err := writeTinyFaaSUploadBody(multipartWriter, metadata, handlerDir)
+		if err == nil {
+			err = multipartWriter.Close()
+		}
+		if err != nil {
+			_ = writer.CloseWithError(err)
+			errCh <- err
+			return
+		}
+
+		closeErr := writer.Close()
+		if closeErr != nil && closeErr != io.ErrClosedPipe {
+			errCh <- closeErr
+			return
+		}
+
+		errCh <- nil
+	}()
+
+	return reader, contentType, errCh
+}
+
+func writeTinyFaaSUploadBody(writer *multipart.Writer, metadata TinyFaaSUploadMetadata, handlerDir string) error {
+	metadataHeader := textproto.MIMEHeader{}
+	metadataHeader.Set("Content-Disposition", `form-data; name="metadata"`)
+	metadataHeader.Set("Content-Type", "application/json")
+
+	metadataPart, err := writer.CreatePart(metadataHeader)
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(metadataPart).Encode(metadata); err != nil {
+		return err
 	}
 
-	// Base64 encode the zip file
-	zipBase64 := base64.StdEncoding.EncodeToString(functionZip)
+	zipPart, err := writer.CreateFormFile("zip", metadata.FunctionName+".zip")
+	if err != nil {
+		return err
+	}
+
+	return util.WriteZipDirectory(zipPart, handlerDir)
+}
+
+// DeployFunctionTinyFaaS deploys a function to tinyFaaS.
+func (c *Client) DeployFunctionTinyFaaS(ctx context.Context, spec *DeployFunctionSpec, handlerDir string) (int, string) {
+	// Convert environment variables to tinyFaaS format
+	envKeys := make([]string, 0, len(spec.EnvVars))
+	for k := range spec.EnvVars {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+
+	envs := make([]string, 0, len(spec.EnvVars))
+	for _, k := range envKeys {
+		v := spec.EnvVars[k]
+		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+	}
 
 	// Check language support
 	switch spec.Language {
@@ -61,11 +117,10 @@ func (c *Client) DeployFunctionTinyFaaS(context context.Context, spec *DeployFun
 		return http.StatusBadRequest, fmt.Sprintf("Unsupported language for tinyFaaS: %s", spec.Language)
 	}
 
-	uploadReq := TinyFaaSUploadRequest{
+	uploadReq := TinyFaaSUploadMetadata{
 		FunctionName:     spec.FunctionName,
 		FunctionEnv:      spec.Language,
 		FunctionReplicas: 1,
-		FunctionZip:      zipBase64,
 		FunctionEnvs:     envs,
 		FunctionLabels:   spec.Labels,
 	}
@@ -75,21 +130,27 @@ func (c *Client) DeployFunctionTinyFaaS(context context.Context, spec *DeployFun
 		uploadReq.Limits = &tinyFaaSResources{CPU: spec.FunctionResourceRequest.Limits.CPU, Memory: spec.FunctionResourceRequest.Limits.Memory}
 	}
 
-	body, err := json.Marshal(uploadReq)
+	bodyReader, contentType, bodyErrCh := buildTinyFaaSUploadBody(uploadReq, handlerDir)
+	req, err := c.newRequestWithContentType(http.MethodPost, "/system/upload", nil, bodyReader, contentType)
 	if err != nil {
-		return http.StatusInternalServerError, fmt.Sprintf("Error marshaling request: %s", err)
-	}
-
-	req, err := c.newRequest(http.MethodPost, "/system/upload", nil, bytes.NewReader(body))
-	if err != nil {
+		_ = bodyReader.CloseWithError(err)
+		<-bodyErrCh
 		return http.StatusInternalServerError, fmt.Sprintf("Error creating request: %s", err)
 	}
 
-	res, err := c.httpClient.Do(req)
+	res, err := c.doRequest(ctx, req)
 	if err != nil {
+		_ = bodyReader.CloseWithError(err)
+		if bodyErr := <-bodyErrCh; bodyErr != nil && bodyErr != io.ErrClosedPipe {
+			return http.StatusInternalServerError, fmt.Sprintf("Error preparing upload: %s", bodyErr)
+		}
 		return http.StatusInternalServerError, fmt.Sprintf("Error deploying function: %s", err)
 	}
 	defer res.Body.Close()
+
+	if bodyErr := <-bodyErrCh; bodyErr != nil {
+		return http.StatusInternalServerError, fmt.Sprintf("Error preparing upload: %s", bodyErr)
+	}
 
 	responseBody, err := io.ReadAll(res.Body)
 	if err != nil {

@@ -305,15 +305,14 @@ Error: %s`, fprocessErr.Error())
 				}
 
 				fmt.Printf("Packaging function handler from: %s\n", resolvedHandler)
-				functionZip, err := util.ZipDirectory(resolvedHandler)
-				if err != nil {
+				if _, err := os.Stat(resolvedHandler); err != nil {
 					failedStatusCodes[k] = http.StatusInternalServerError
-					fmt.Printf("Error creating function zip for %s: %v\n", function.Name, err)
+					fmt.Printf("Error reading function handler for %s: %v\n", function.Name, err)
 					continue
 				}
 
 				var output string
-				statusCode, output = proxyClient.DeployFunctionTinyFaaS(ctx, deploySpec, functionZip)
+				statusCode, output = proxyClient.DeployFunctionTinyFaaS(ctx, deploySpec, resolvedHandler)
 				fmt.Println(output)
 			} else {
 				// Standard OpenFaaS/faasd deployment
@@ -358,10 +357,9 @@ Error: %s`, fprocessErr.Error())
 			}
 
 			fmt.Printf("Packaging function handler from: %s\n", handler)
-			functionZip, err := util.ZipDirectory(handler)
-			if err != nil {
+			if _, err := os.Stat(handler); err != nil {
 				failedStatusCodes[functionName] = http.StatusInternalServerError
-				return fmt.Errorf("Error creating function zip for %s: %v\n", functionName, err)
+				return fmt.Errorf("Error reading function handler for %s: %v\n", functionName, err)
 			}
 
 			envVars, err := compileEnvironment(deployFlags.envvarOpts, nil, nil)
@@ -375,7 +373,7 @@ Error: %s`, fprocessErr.Error())
 				FunctionName: functionName,
 				EnvVars:      envVars,
 			}
-			statusCode, output = proxyClient.DeployFunctionTinyFaaS(ctx, deploySpec, functionZip)
+			statusCode, output = proxyClient.DeployFunctionTinyFaaS(ctx, deploySpec, handler)
 			fmt.Println(output)
 		} else {
 			// default to a readable filesystem until we get more input about the expected behavior
