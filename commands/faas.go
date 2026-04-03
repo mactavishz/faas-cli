@@ -63,6 +63,11 @@ func resetForTest() {
 	yamlFile = ""
 	regex = ""
 	filter = ""
+	platform = platformFaasd
+	if flag := faasCmd.PersistentFlags().Lookup("platform"); flag != nil {
+		flag.Changed = false
+		_ = flag.Value.Set(platformFaasd)
+	}
 	version.Version = ""
 	shortVersion = false
 	appendFile = ""
@@ -75,7 +80,7 @@ func init() {
 	faasCmd.PersistentFlags().StringVarP(&yamlFile, "yaml", "f", "", "Path to YAML file describing function(s)")
 	faasCmd.PersistentFlags().StringVarP(&regex, "regex", "", "", "Regex to match with function names in YAML file")
 	faasCmd.PersistentFlags().StringVarP(&filter, "filter", "", "", "Wildcard to match with function names in YAML file")
-	faasCmd.PersistentFlags().StringVarP(&platform, "platform", "", "faasd", "Target platform: faasd or tinyfaas")
+	faasCmd.PersistentFlags().StringVarP(&platform, "platform", "", "faasd", "Target platform: faasd or tinyfaas. With --yaml, defaults from provider.name unless overridden")
 
 	// Set Bash completion options
 	validYAMLFilenames := []string{"yaml", "yml"}

@@ -47,7 +47,7 @@ func init() {
 var functionLogsCmd = &cobra.Command{
 	Use:   `logs <NAME> [--tls-no-verify] [--gateway] [--output=text/json]`,
 	Short: "Fetch logs for a functions",
-	Long:  "Fetch logs for a given function name in plain text or JSON format.",
+	Long:  "Fetch logs for a given function name in plain text or JSON format. For tinyFaaS, logs are returned via the platform-specific simplified logs endpoint.",
 	Example: `  faas-cli logs FN
   faas-cli logs FN --output=json
   faas-cli logs FN --lines=5

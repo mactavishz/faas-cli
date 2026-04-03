@@ -109,10 +109,11 @@ var deployCmd = &cobra.Command{
 				  [--readonly=false]
 				  [--tls-no-verify]`,
 
-	Short: "Deploy OpenFaaS functions",
-	Long: `Deploys OpenFaaS function containers either via the supplied YAML config using
+	Short: "Deploy OpenFaaS/tinyFaaS functions",
+	Long: `Deploys OpenFaaS/tinyFaaS function containers either via the supplied YAML config using
 the "--yaml" flag (which may contain multiple function definitions), or directly
-via flags. Note: --replace and --update are mutually exclusive.`,
+via flags. Note: --replace and --update are mutually exclusive.
+When using --yaml, provider.name controls platform behavior unless --platform is set`,
 	Example: `  faas-cli deploy -f https://domain/path/myfunctions.yml
   faas-cli deploy -f stack.yaml
   faas-cli deploy -f stack.yaml --label canary=true
@@ -140,10 +141,10 @@ func preRunDeploy(cmd *cobra.Command, args []string) error {
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
-	return runDeployCommand(args, image, fprocess, functionName, deployFlags, tagFormat)
+	return runDeployCommand(cmd, args, image, fprocess, functionName, deployFlags, tagFormat)
 }
 
-func runDeployCommand(args []string, image string, fprocess string, functionName string, deployFlags DeployFlags, tagMode schema.BuildFormat) error {
+func runDeployCommand(cmd *cobra.Command, args []string, image string, fprocess string, functionName string, deployFlags DeployFlags, tagMode schema.BuildFormat) error {
 	if deployFlags.update && deployFlags.replace {
 		fmt.Println(`Cannot specify --update and --replace at the same time. One of --update or --replace must be false.
   --replace    removes an existing deployment before re-creating it
@@ -151,14 +152,8 @@ func runDeployCommand(args []string, image string, fprocess string, functionName
 		return fmt.Errorf("cannot specify --update and --replace at the same time")
 	}
 
-	// Use a longer default timeout for tinyFaaS deploys since image builds
-	// happen server-side and can easily exceed the standard 60s timeout.
-	if platform == "tinyfaas" && timeoutOverride == commandTimeout {
-		timeoutOverride = 10 * time.Minute
-		fmt.Printf("Using extended deploy timeout for tinyFaaS: %s (override with --timeout)\n", timeoutOverride)
-	}
-
 	var services stack.Services
+	effectivePlatform := getEffectivePlatform(cmd, platform, "")
 	if len(yamlFile) > 0 {
 		parsedServices, err := stack.ParseYAMLFile(yamlFile, regex, filter, envsubst)
 		if err != nil {
@@ -167,8 +162,16 @@ func runDeployCommand(args []string, image string, fprocess string, functionName
 
 		if parsedServices != nil {
 			parsedServices.Provider.GatewayURL = getGatewayURL(gateway, defaultGateway, parsedServices.Provider.GatewayURL, os.Getenv(openFaaSURLEnvironment))
+			effectivePlatform = getEffectivePlatform(cmd, platform, parsedServices.Provider.Name)
 			services = *parsedServices
 		}
+	}
+
+	// Use a longer default timeout for tinyFaaS deploys since image builds
+	// happen server-side and can easily exceed the standard 60s timeout.
+	if effectivePlatform == platformTinyFaaS && timeoutOverride == commandTimeout {
+		timeoutOverride = 10 * time.Minute
+		fmt.Printf("Using extended deploy timeout for tinyFaaS: %s (override with --timeout)\n", timeoutOverride)
 	}
 
 	transport := GetDefaultCLITransport(tlsInsecure, &timeoutOverride)
@@ -231,7 +234,7 @@ func runDeployCommand(args []string, image string, fprocess string, functionName
 				return envErr
 			}
 
-			if readTemplate && platform != "tinyfaas" {
+			if readTemplate && effectivePlatform != platformTinyFaaS {
 				// Get FProcess to use from the ./template/template.yml, if a template is being used
 				if languageExistsNotDockerfile(function.Language) {
 					var fprocessErr error
@@ -296,7 +299,7 @@ Error: %s`, fprocessErr.Error())
 
 			// Check if deploying to tinyFaaS
 			var statusCode int
-			if platform == "tinyfaas" {
+			if effectivePlatform == platformTinyFaaS {
 				// For tinyFaaS, we need to zip the handler directory
 				if function.Handler == "" {
 					failedStatusCodes[k] = http.StatusBadRequest
@@ -328,7 +331,7 @@ Error: %s`, fprocessErr.Error())
 		}
 	} else {
 		var statusCode int
-		if platform == "tinyfaas" {
+		if effectivePlatform == platformTinyFaaS {
 			if len(functionName) == 0 {
 				return fmt.Errorf("to deploy a function to tinyFaaS you must provide a --name flag")
 			}
@@ -349,7 +352,7 @@ Error: %s`, fprocessErr.Error())
 		}
 
 		// Check if we're deploying to tinyFaaS
-		if platform == "tinyfaas" {
+		if effectivePlatform == platformTinyFaaS {
 			// For tinyFaaS, we need to zip the handler directory
 			if handler == "" {
 				failedStatusCodes[functionName] = http.StatusBadRequest

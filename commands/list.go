@@ -40,8 +40,9 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:     `list [--gateway GATEWAY_URL] [--verbose] [--tls-no-verify]`,
 	Aliases: []string{"ls"},
-	Short:   "List OpenFaaS functions",
-	Long:    `Lists OpenFaaS functions either on a local or remote gateway`,
+	Short:   "List OpenFaaS/tinyFaaS functions",
+	Long: `Lists OpenFaaS/tinyFaaS functions either on a local or remote gateway.
+With --yaml, provider.name controls platform behavior unless --platform is set.`,
 	Example: `  faas-cli list
   faas-cli list --gateway https://127.0.0.1:8080 --verbose`,
 	RunE: runList,
@@ -51,6 +52,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	var services stack.Services
 	var gatewayAddress string
 	var yamlGateway string
+	effectivePlatform := getEffectivePlatform(cmd, platform, "")
 	if len(yamlFile) > 0 {
 		parsedServices, err := stack.ParseYAMLFile(yamlFile, regex, filter, envsubst)
 		if err != nil {
@@ -60,6 +62,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		if parsedServices != nil {
 			services = *parsedServices
 			yamlGateway = services.Provider.GatewayURL
+			effectivePlatform = getEffectivePlatform(cmd, platform, services.Provider.Name)
 		}
 	}
 	gatewayAddress = getGatewayURL(gateway, defaultGateway, yamlGateway, os.Getenv(openFaaSURLEnvironment))
@@ -76,7 +79,7 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	var functions []types.FunctionStatus
 
-	if platform == "tinyfaas" {
+	if effectivePlatform == platformTinyFaaS {
 		functions, err = proxyClient.ListFunctionsTinyFaaS(context.Background(), functionNamespace)
 	} else {
 		functions, err = proxyClient.ListFunctions(context.Background(), functionNamespace)
@@ -113,19 +116,19 @@ func runList(cmd *cobra.Command, args []string) error {
 			// if len(function.Image) > 40 {
 			// 	functionImage = functionImage[0:38] + ".."
 			// }
-			fmt.Printf("%-30s\t%-"+fmt.Sprintf("%d", maxWidth)+"s\t%-15d\t%-5s\t\t%-5s\n", function.Name, functionImage, int64(function.InvocationCount), formatListReplicas(function), function.CreatedAt.String())
+			fmt.Printf("%-30s\t%-"+fmt.Sprintf("%d", maxWidth)+"s\t%-15d\t%-5s\t\t%-5s\n", function.Name, functionImage, int64(function.InvocationCount), formatListReplicas(function, effectivePlatform), function.CreatedAt.String())
 		}
 	} else {
 		fmt.Printf("%-30s\t%-15s\t%-5s\n", "Function", "Invocations", "Replicas")
 		for _, function := range functions {
-			fmt.Printf("%-30s\t%-15d\t%-5s\n", function.Name, int64(function.InvocationCount), formatListReplicas(function))
+			fmt.Printf("%-30s\t%-15d\t%-5s\n", function.Name, int64(function.InvocationCount), formatListReplicas(function, effectivePlatform))
 		}
 	}
 	return nil
 }
 
-func formatListReplicas(function types.FunctionStatus) string {
-	if platform == "tinyfaas" {
+func formatListReplicas(function types.FunctionStatus, effectivePlatform string) string {
+	if effectivePlatform == platformTinyFaaS {
 		return fmt.Sprintf("%d/%d", function.AvailableReplicas, function.Replicas)
 	}
 

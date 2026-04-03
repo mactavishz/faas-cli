@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -64,5 +65,44 @@ func Test_remove(t *testing.T) {
 
 	if !strings.Contains(commandOutput, "Deleting: test-function") {
 		t.Error("test-function should be deleted.")
+	}
+}
+
+func Test_remove_tinyFaaS_fromYAMLProvider_withoutPlatformFlag(t *testing.T) {
+	s := test.MockHttpServer(t, []test.Request{
+		{
+			Method:             http.MethodPost,
+			Uri:                "/system/delete",
+			ResponseStatusCode: http.StatusOK,
+		},
+	})
+	defer s.Close()
+
+	stackYAML := strings.Join([]string{
+		"provider:",
+		"  name: tinyfaas",
+		"functions:",
+		"  fn1:",
+		"    lang: go",
+		"    handler: ./fn1",
+	}, "\n")
+	stackPath := filepath.Join(t.TempDir(), "stack.yml")
+	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resetForTest()
+
+	commandOutput := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"remove",
+			"--yaml=" + stackPath,
+			"--gateway=" + s.URL,
+		})
+		faasCmd.Execute()
+	})
+
+	if !strings.Contains(commandOutput, "Deleting: fn1") {
+		t.Fatal("fn1 should be deleted.")
 	}
 }

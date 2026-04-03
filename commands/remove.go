@@ -29,10 +29,11 @@ var removeCmd = &cobra.Command{
 	Use: `remove FUNCTION_NAME [--gateway GATEWAY_URL]
   faas-cli remove -f YAML_FILE [--regex "REGEX"] [--filter "WILDCARD"]`,
 	Aliases: []string{"rm", "delete"},
-	Short:   "Remove deployed OpenFaaS functions",
-	Long: `Removes/deletes deployed OpenFaaS functions either via the supplied YAML config
+	Short:   "Remove deployed OpenFaaS/tinyFaaS functions",
+	Long: `Removes/deletes deployed OpenFaaS/tinyFaaS functions either via the supplied YAML config
 using the "--yaml" flag (which may contain multiple function definitions), or by
-explicitly specifying a function name.`,
+explicitly specifying a function name.
+With --yaml, provider.name controls platform behavior unless --platform is set.`,
 	Example: `  faas-cli remove -f https://domain/path/myfunctions.yml
   faas-cli remove -f stack.yaml
   faas-cli remove -f stack.yaml --filter "*gif*"
@@ -46,6 +47,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	var services stack.Services
 	var gatewayAddress string
 	var yamlGateway string
+	effectivePlatform := getEffectivePlatform(cmd, platform, "")
 	if len(yamlFile) > 0 && len(args) == 0 {
 		parsedServices, err := stack.ParseYAMLFile(yamlFile, regex, filter, envsubst)
 		if err != nil {
@@ -55,6 +57,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		if parsedServices != nil {
 			services = *parsedServices
 			yamlGateway = services.Provider.GatewayURL
+			effectivePlatform = getEffectivePlatform(cmd, platform, services.Provider.Name)
 		}
 	}
 
@@ -78,7 +81,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 			function.Name = k
 			fmt.Printf("Deleting: %s.%s\n", function.Name, function.Namespace)
 
-			if platform == "tinyfaas" {
+			if effectivePlatform == platformTinyFaaS {
 				err := proxyclient.DeleteFunctionTinyFaaS(ctx, function.Name, function.Namespace)
 				if err != nil {
 					fmt.Printf("Error deleting function %s: %v\n", function.Name, err)
@@ -95,7 +98,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		functionName = args[0]
 		fmt.Printf("Deleting: %s.%s\n", functionName, functionNamespace)
 
-		if platform == "tinyfaas" {
+		if effectivePlatform == platformTinyFaaS {
 			err := proxyclient.DeleteFunctionTinyFaaS(ctx, functionName, functionNamespace)
 			if err != nil {
 				return err

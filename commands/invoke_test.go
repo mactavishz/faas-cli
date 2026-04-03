@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 
 	"io/ioutil"
@@ -85,6 +87,61 @@ func Test_async_invoke(t *testing.T) {
 		t.Fatalf("Async output is not as expected:\nExpected:\n%s\n Got:\n%s", `(?m:)`, stdOut)
 	}
 
+}
+
+func Test_invoke_tinyFaaS_fromYAMLProvider_withoutPlatformFlag(t *testing.T) {
+	resetForTest()
+
+	funcName := "test-1"
+	s := test.MockHttpServer(t, []test.Request{
+		{
+			Method:             http.MethodPost,
+			Uri:                "/fn/" + funcName,
+			ResponseStatusCode: http.StatusOK,
+			ResponseBody:       "tiny-response",
+		},
+	})
+	defer s.Close()
+
+	stackYAML := strings.Join([]string{
+		"provider:",
+		"  name: tinyfaas",
+		"functions:",
+		"  test-1:",
+		"    lang: python",
+		"    handler: ./handler",
+	}, "\n")
+	stackPath := filepath.Join(t.TempDir(), "stack.yml")
+	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldServices := services
+	services = nil
+	t.Cleanup(func() {
+		services = oldServices
+	})
+
+	os.Stdin, _ = os.CreateTemp("", "stdin")
+	os.Stdin.WriteString("test-data")
+	os.Stdin.Seek(0, 0)
+	defer func() {
+		os.Remove(os.Stdin.Name())
+	}()
+
+	stdOut := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"invoke",
+			"--gateway=" + s.URL,
+			"--yaml=" + stackPath,
+			funcName,
+		})
+		faasCmd.Execute()
+	})
+
+	if found, err := regexp.MatchString(`(?m:tiny-response)`, stdOut); err != nil || !found {
+		t.Fatalf("Output is not as expected:\nExpected:\n%s\n Got:\n%s", `(?m:tiny-response)`, stdOut)
+	}
 }
 
 func Test_generateHeader(t *testing.T) {

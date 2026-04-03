@@ -61,8 +61,9 @@ func init() {
 
 var invokeCmd = &cobra.Command{
 	Use:   `invoke FUNCTION_NAME [--gateway GATEWAY_URL] [--content-type CONTENT_TYPE] [--query KEY=VALUE] [--header "KEY: VALUE"] [--method HTTP_METHOD]`,
-	Short: "Invoke an OpenFaaS function",
-	Long:  `Invokes an OpenFaaS function and reads from STDIN for the body of the request`,
+	Short: "Invoke an OpenFaaS/tinyFaaS function",
+	Long: `Invokes an OpenFaaS/tinyFaaS function and reads from STDIN for the body of the request.
+With --yaml, provider.name controls platform behavior unless --platform is set.`,
 	Example: `  faas-cli invoke printer --gateway https://host:port <<< "Hello"
   faas-cli invoke echo --gateway https://host:port --content-type application/json
   faas-cli invoke env --query repo=faas-cli --query org=openfaas
@@ -92,7 +93,9 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 	functionName = args[0]
 
 	var stackNamespace string
+	effectivePlatform := getEffectivePlatform(cmd, platform, "")
 	if services != nil {
+		effectivePlatform = getEffectivePlatform(cmd, platform, services.Provider.Name)
 		if function, ok := services.Functions[functionName]; ok {
 			if len(function.Namespace) > 0 {
 				stackNamespace = function.Namespace
@@ -142,7 +145,7 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle tinyFaaS invocation
-	if platform == "tinyfaas" {
+	if effectivePlatform == platformTinyFaaS {
 		gatewayAddress := getGatewayURL(gateway, defaultGateway, "", os.Getenv(openFaaSURLEnvironment))
 
 		cliAuth, err := proxy.NewCLIAuth(token, gatewayAddress)

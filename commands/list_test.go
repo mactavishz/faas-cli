@@ -5,6 +5,8 @@ package commands
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -142,6 +144,53 @@ func Test_list_tinyFaaS_replicaRatiosVerbose(t *testing.T) {
 	})
 
 	if !strings.Contains(stdOut, "1/1") || !strings.Contains(stdOut, "0/3") {
+		t.Fatalf("Output is not as expected:\n%s", stdOut)
+	}
+}
+
+func Test_list_tinyFaaS_fromYAMLProvider_withoutPlatformFlag(t *testing.T) {
+	expectedListResponse := []map[string]interface{}{
+		{
+			"name":     "function-test-1",
+			"replicas": 2,
+			"running":  true,
+		},
+	}
+
+	s := test.MockHttpServer(t, []test.Request{
+		{
+			Method:             http.MethodGet,
+			Uri:                "/system/list",
+			ResponseStatusCode: http.StatusOK,
+			ResponseBody:       expectedListResponse,
+		},
+	})
+	defer s.Close()
+
+	stackYAML := strings.Join([]string{
+		"provider:",
+		"  name: tinyfaas",
+		"functions:",
+		"  function-test-1:",
+		"    lang: python",
+		"    handler: ./handler",
+	}, "\n")
+	stackPath := filepath.Join(t.TempDir(), "stack.yml")
+	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resetForTest()
+	stdOut := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"list",
+			"--gateway=" + s.URL,
+			"--yaml=" + stackPath,
+		})
+		faasCmd.Execute()
+	})
+
+	if !strings.Contains(stdOut, "2/2") {
 		t.Fatalf("Output is not as expected:\n%s", stdOut)
 	}
 }

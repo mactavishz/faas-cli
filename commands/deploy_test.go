@@ -340,12 +340,64 @@ func Test_deployTinyFaaS_WithYAML(t *testing.T) {
 
 	stackYAML := strings.Join([]string{
 		"provider:",
-		"  name: openfaas",
+		"  name: tinyfaas",
 		"functions:",
 		"  yaml-function:",
 		"    lang: python",
 		"    handler: ./handler",
 		"    image: example/yaml-function:latest",
+	}, "\n")
+	stackPath := filepath.Join(projectDir, "stack.yml")
+	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server, requestCount := newTinyFaaSUploadServer(t, "yaml-function")
+	defer server.Close()
+
+	var err error
+	stdOut := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"deploy",
+			"--gateway=" + server.URL,
+			"--yaml=" + stackPath,
+		})
+		err = faasCmd.Execute()
+	})
+
+	if err != nil {
+		t.Fatalf("expected YAML deploy to succeed, got error: %v", err)
+	}
+	if *requestCount != 1 {
+		t.Fatalf("expected 1 upload request, got %d", *requestCount)
+	}
+	if !strings.Contains(stdOut, "Packaging function handler from: "+filepath.Join(projectDir, "./handler")) {
+		t.Fatalf("expected YAML handler packaging output, got: %s", stdOut)
+	}
+	if !strings.Contains(stdOut, "Function yaml-function deployed successfully") {
+		t.Fatalf("expected deploy success output, got: %s", stdOut)
+	}
+}
+
+func Test_deployTinyFaaS_WithYAML_ExplicitPlatformOverridesProvider(t *testing.T) {
+	prepareTinyFaaSDeployTest(t)
+
+	projectDir := t.TempDir()
+	handlerDir := filepath.Join(projectDir, "handler")
+	if err := os.Mkdir(handlerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(handlerDir, "handler.py"), []byte("print('hello')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stackYAML := strings.Join([]string{
+		"provider:",
+		"  name: openfaas",
+		"functions:",
+		"  yaml-function:",
+		"    lang: python",
+		"    handler: ./handler",
 	}, "\n")
 	stackPath := filepath.Join(projectDir, "stack.yml")
 	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
@@ -367,15 +419,12 @@ func Test_deployTinyFaaS_WithYAML(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("expected YAML deploy to succeed, got error: %v", err)
+		t.Fatalf("expected deploy to succeed, got error: %v", err)
 	}
 	if *requestCount != 1 {
 		t.Fatalf("expected 1 upload request, got %d", *requestCount)
 	}
-	if !strings.Contains(stdOut, "Packaging function handler from: "+filepath.Join(projectDir, "./handler")) {
-		t.Fatalf("expected YAML handler packaging output, got: %s", stdOut)
-	}
 	if !strings.Contains(stdOut, "Function yaml-function deployed successfully") {
-		t.Fatalf("expected deploy success output, got: %s", stdOut)
+		t.Fatalf("expected tinyFaaS deploy output, got: %s", stdOut)
 	}
 }
