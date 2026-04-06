@@ -532,8 +532,8 @@ func deriveFprocess(function stack.Function) (string, error) {
 		return function.FProcess, nil
 	}
 
-	pathToTemplateYAML := "./template/" + function.Language + "/template.yml"
-	if _, err := os.Stat(pathToTemplateYAML); err != nil && os.IsNotExist(err) {
+	pathToTemplateYAML, err := resolveTemplateYAMLPath(yamlFile, function.Language)
+	if err != nil {
 		return "", err
 	}
 
@@ -575,11 +575,120 @@ func badStatusCode(statusCode int) bool {
 }
 
 // resolveHandlerPath resolves the handler path relative to the stack file directory.
-// If yamlFilePath is empty or handlerPath is absolute, handlerPath is returned as-is.
+// If yamlFilePath is empty, handlerPath is empty, or handlerPath is absolute,
+// handlerPath is returned as-is.
 func resolveHandlerPath(yamlFilePath, handlerPath string) string {
-	if yamlFilePath == "" || filepath.IsAbs(handlerPath) {
+	if yamlFilePath == "" || handlerPath == "" || filepath.IsAbs(handlerPath) {
 		return handlerPath
 	}
 	stackDir := filepath.Dir(yamlFilePath)
 	return filepath.Join(stackDir, handlerPath)
+}
+
+// resolveStackFunctionHandlerPaths rewrites all function handlers from a stack
+// so relative handler paths are anchored to the stack file location.
+func resolveStackFunctionHandlerPaths(yamlFilePath string, services *stack.Services) {
+	if services == nil {
+		return
+	}
+
+	for name, function := range services.Functions {
+		function.Handler = resolveHandlerPath(yamlFilePath, function.Handler)
+		services.Functions[name] = function
+	}
+}
+
+// resolveTemplateDirectory returns the template directory to use for a stack.
+// For stack-based commands, this points to <stack-dir>/template.
+// For direct flag-based commands, this falls back to ./template.
+func resolveTemplateDirectory(yamlFilePath string) string {
+	if yamlFilePath == "" {
+		return "./template"
+	}
+
+	return filepath.Join(filepath.Dir(yamlFilePath), "template")
+}
+
+func resolveTemplateSearchDirectories(yamlFilePath string) []string {
+	searchDirs := []string{}
+	if yamlFilePath != "" {
+		searchDirs = append(searchDirs, resolveTemplateDirectory(yamlFilePath))
+	}
+
+	searchDirs = append(searchDirs, "./template")
+
+	seen := map[string]struct{}{}
+	unique := make([]string, 0, len(searchDirs))
+	for _, dir := range searchDirs {
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+
+		seen[dir] = struct{}{}
+		unique = append(unique, dir)
+	}
+
+	return unique
+}
+
+// resolveTemplateYAMLPath finds a template.yml for a language by searching
+// stack-local templates first, then the current working directory template.
+func resolveTemplateYAMLPath(yamlFilePath, language string) (string, error) {
+	language = strings.ToLower(language)
+
+	var firstCandidate string
+	for _, templateDir := range resolveTemplateSearchDirectories(yamlFilePath) {
+		candidate := filepath.Join(templateDir, language, "template.yml")
+		if firstCandidate == "" {
+			firstCandidate = candidate
+		}
+
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	if firstCandidate == "" {
+		firstCandidate = filepath.Join("./template", language, "template.yml")
+	}
+
+	_, err := os.Stat(firstCandidate)
+	if err != nil {
+		return "", err
+	}
+
+	return firstCandidate, nil
+}
+
+func templateExistsForLanguage(templateDir, language string) bool {
+	if !languageExistsNotDockerfile(language) {
+		return true
+	}
+
+	pathToTemplateYAML := filepath.Join(templateDir, strings.ToLower(language), "template.yml")
+	_, err := os.Stat(pathToTemplateYAML)
+	return err == nil
+}
+
+// stackHasLocalTemplates returns true when every function that requires a
+// language template can be satisfied by the stack-local template directory.
+func stackHasLocalTemplates(yamlFilePath string, functions map[string]stack.Function) bool {
+	if yamlFilePath == "" || len(functions) == 0 {
+		return false
+	}
+
+	templateDir := resolveTemplateDirectory(yamlFilePath)
+	needsTemplate := false
+	for _, function := range functions {
+		if !languageExistsNotDockerfile(function.Language) {
+			continue
+		}
+
+		needsTemplate = true
+		if !templateExistsForLanguage(templateDir, function.Language) {
+			return false
+		}
+	}
+
+	return needsTemplate || len(functions) > 0
 }

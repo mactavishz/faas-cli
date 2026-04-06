@@ -136,6 +136,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 		if parsedServices != nil {
 			services = *parsedServices
+			resolveStackFunctionHandlerPaths(yamlFile, &services)
 		}
 	}
 
@@ -147,9 +148,11 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	templatesFound := false
-	if stat, err := os.Stat("./template"); err == nil && stat.IsDir() {
-		templatesFound = true
+	templatesFound := stackHasLocalTemplates(yamlFile, services.Functions)
+	if !templatesFound {
+		if stat, err := os.Stat("./template"); err == nil && stat.IsDir() {
+			templatesFound = true
+		}
 	}
 
 	// if no templates are configured, but they exist in the configuration section,
@@ -160,12 +163,13 @@ func runPublish(cmd *cobra.Command, args []string) error {
 				return err
 			}
 
+			templatesFound = true
+
 		}
 	}
 
 	if needTemplates {
-		if _, err := os.Stat("./template"); err != nil && os.IsNotExist(err) {
-
+		if !templatesFound {
 			return fmt.Errorf(`the "template" directory is missing but required by at least one function`)
 		}
 	}

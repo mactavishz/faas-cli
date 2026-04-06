@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	v2execute "github.com/alexellis/go-execute/v2"
@@ -24,153 +25,148 @@ import (
 // TODO: refactor signature to a struct to simplify the length of the method header
 func PublishImage(image string, handler string, functionName string, language string, nocache bool, squash bool, shrinkwrap bool, buildArgMap map[string]string,
 	buildOptions []string, tagMode schema.BuildFormat, buildLabelMap map[string]string, quietBuild bool, copyExtraPaths []string, platforms string, extraTags []string, remoteBuilder, payloadSecretPath string, forcePull bool) error {
+	templateDir := resolveTemplateDirFromHandler(handler, language)
+	pathToTemplateYAML := filepath.Join(templateDir, strings.ToLower(language), "template.yml")
+	if _, err := os.Stat(pathToTemplateYAML); err != nil && os.IsNotExist(err) {
+		return fmt.Errorf("language template: %s not supported, build a custom Dockerfile", language)
+	}
 
-	if stack.IsValidTemplate(language) {
-		pathToTemplateYAML := fmt.Sprintf("./template/%s/template.yml", language)
-		if _, err := os.Stat(pathToTemplateYAML); err != nil && os.IsNotExist(err) {
-			return err
+	langTemplate, err := stack.ParseYAMLForLanguageTemplate(pathToTemplateYAML)
+	if err != nil {
+		return fmt.Errorf("error reading language template: %s", err.Error())
+	}
+
+	if err := ensureHandlerPath(handler); err != nil {
+		return fmt.Errorf("building %s, %s is an invalid path", functionName, handler)
+	}
+
+	opts := []builder.BuildContextOption{builder.WithTemplateDir(templateDir)}
+	if len(langTemplate.HandlerFolder) > 0 {
+		opts = append(opts, builder.WithHandlerOverlay(langTemplate.HandlerFolder))
+	}
+
+	buildContext, err := builder.CreateBuildContext(functionName, handler, language, copyExtraPaths, opts...)
+	if err != nil {
+		return err
+	}
+
+	if shrinkwrap {
+		fmt.Printf("%s shrink-wrapped to %s\n", functionName, buildContext)
+		return nil
+	}
+
+	branch, version, err := GetImageTagValues(tagMode, handler)
+	if err != nil {
+		return err
+	}
+
+	imageName := schema.BuildImageName(tagMode, image, version, branch)
+
+	buildOptPackages, err := getBuildOptionPackages(buildOptions, language, langTemplate.BuildOptions)
+	if err != nil {
+		return err
+	}
+	buildArgMap = appendAdditionalPackages(buildArgMap, buildOptPackages)
+
+	fmt.Printf("Building: %s with %s template. Please wait..\n", imageName, language)
+
+	if remoteBuilder != "" {
+
+		if forcePull {
+			return fmt.Errorf("--pull is not supported with --remote-builder")
 		}
 
-		langTemplate, err := stack.ParseYAMLForLanguageTemplate(pathToTemplateYAML)
+		tempDir, err := os.MkdirTemp(os.TempDir(), "openfaas-build-*")
 		if err != nil {
-			return fmt.Errorf("error reading language template: %s", err.Error())
+			return fmt.Errorf("failed to create temporary directory: %w", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		tarPath := path.Join(tempDir, "req.tar")
+
+		builderPlatforms := strings.Split(platforms, ",")
+		buildConfig := builder.BuildConfig{
+			Image:     imageName,
+			BuildArgs: buildArgMap,
+			Platforms: builderPlatforms,
 		}
 
-		if err := ensureHandlerPath(handler); err != nil {
-			return fmt.Errorf("building %s, %s is an invalid path", functionName, handler)
+		// Prepare a tar archive that contains the build config and build context.
+		if err := builder.MakeTar(tarPath, path.Join("build", functionName), &buildConfig); err != nil {
+			return fmt.Errorf("failed to create tar file for %s, error: %w", functionName, err)
 		}
 
-		opts := []builder.BuildContextOption{}
-		if len(langTemplate.HandlerFolder) > 0 {
-			opts = append(opts, builder.WithHandlerOverlay(langTemplate.HandlerFolder))
-		}
-
-		buildContext, err := builder.CreateBuildContext(functionName, handler, language, copyExtraPaths, opts...)
+		// Get the HMAC secret used for payload authentication with the builder API.
+		payloadSecret, err := os.ReadFile(payloadSecretPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read payload secret: %w", err)
 		}
+		payloadSecret = bytes.TrimSpace(payloadSecret)
 
-		if shrinkwrap {
-			fmt.Printf("%s shrink-wrapped to %s\n", functionName, buildContext)
-			return nil
+		// Initialize a new builder client.
+		u, _ := url.Parse(remoteBuilder)
+		builderURL := &url.URL{
+			Scheme: u.Scheme,
+			Host:   u.Host,
 		}
+		b := builder.NewFunctionBuilder(builderURL, http.DefaultClient, builder.WithHmacAuth(string(payloadSecret)))
 
-		branch, version, err := GetImageTagValues(tagMode, handler)
+		stream, err := b.BuildWithStream(tarPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to invoke builder:: %w", err)
 		}
+		defer stream.Close()
 
-		imageName := schema.BuildImageName(tagMode, image, version, branch)
-
-		buildOptPackages, err := getBuildOptionPackages(buildOptions, language, langTemplate.BuildOptions)
-		if err != nil {
-			return err
-		}
-		buildArgMap = appendAdditionalPackages(buildArgMap, buildOptPackages)
-
-		fmt.Printf("Building: %s with %s template. Please wait..\n", imageName, language)
-
-		if remoteBuilder != "" {
-
-			if forcePull {
-				return fmt.Errorf("--pull is not supported with --remote-builder")
-			}
-
-			tempDir, err := os.MkdirTemp(os.TempDir(), "openfaas-build-*")
-			if err != nil {
-				return fmt.Errorf("failed to create temporary directory: %w", err)
-			}
-			defer os.RemoveAll(tempDir)
-
-			tarPath := path.Join(tempDir, "req.tar")
-
-			builderPlatforms := strings.Split(platforms, ",")
-			buildConfig := builder.BuildConfig{
-				Image:     imageName,
-				BuildArgs: buildArgMap,
-				Platforms: builderPlatforms,
-			}
-
-			// Prepare a tar archive that contains the build config and build context.
-			if err := builder.MakeTar(tarPath, path.Join("build", functionName), &buildConfig); err != nil {
-				return fmt.Errorf("failed to create tar file for %s, error: %w", functionName, err)
-			}
-
-			// Get the HMAC secret used for payload authentication with the builder API.
-			payloadSecret, err := os.ReadFile(payloadSecretPath)
-			if err != nil {
-				return fmt.Errorf("failed to read payload secret: %w", err)
-			}
-			payloadSecret = bytes.TrimSpace(payloadSecret)
-
-			// Initialize a new builder client.
-			u, _ := url.Parse(remoteBuilder)
-			builderURL := &url.URL{
-				Scheme: u.Scheme,
-				Host:   u.Host,
-			}
-			b := builder.NewFunctionBuilder(builderURL, http.DefaultClient, builder.WithHmacAuth(string(payloadSecret)))
-
-			stream, err := b.BuildWithStream(tarPath)
-			if err != nil {
-				return fmt.Errorf("failed to invoke builder:: %w", err)
-			}
-			defer stream.Close()
-
-			for result := range stream.Results() {
-				if !quietBuild {
-					for _, logMsg := range result.Log {
-						fmt.Printf("%s\n", logMsg)
-					}
-				}
-
-				switch result.Status {
-				case builder.BuildSuccess:
-					log.Printf("%s success building and pushing image: %s", functionName, result.Image)
-				case builder.BuildFailed:
-					return fmt.Errorf("%s failure while building or pushing image %s: %s", functionName, imageName, result.Error)
+		for result := range stream.Results() {
+			if !quietBuild {
+				for _, logMsg := range result.Log {
+					fmt.Printf("%s\n", logMsg)
 				}
 			}
 
-		} else {
-			dockerBuildVal := dockerBuild{
-				Image:         imageName,
-				NoCache:       nocache,
-				Squash:        squash,
-				HTTPProxy:     os.Getenv("http_proxy"),
-				HTTPSProxy:    os.Getenv("https_proxy"),
-				BuildArgMap:   buildArgMap,
-				BuildLabelMap: buildLabelMap,
-				Platforms:     platforms,
-				ExtraTags:     extraTags,
-				ForcePull:     forcePull,
+			switch result.Status {
+			case builder.BuildSuccess:
+				log.Printf("%s success building and pushing image: %s", functionName, result.Image)
+			case builder.BuildFailed:
+				return fmt.Errorf("%s failure while building or pushing image %s: %s", functionName, imageName, result.Error)
 			}
-
-			command, args := getDockerBuildxCommand(dockerBuildVal)
-			fmt.Printf("Publishing with command: %v %v\n", command, args)
-
-			task := v2execute.ExecTask{
-				Cwd:         buildContext,
-				Command:     command,
-				Args:        args,
-				StreamStdio: !quietBuild,
-			}
-
-			res, err := task.Execute(context.TODO())
-
-			if err != nil {
-				return err
-			}
-
-			if res.ExitCode != 0 {
-				return fmt.Errorf("[%s] received non-zero exit code from build, error: %s", functionName, res.Stderr)
-			}
-
-			fmt.Printf("Image: %s built.\n", imageName)
 		}
 
 	} else {
-		return fmt.Errorf("language template: %s not supported, build a custom Dockerfile", language)
+		dockerBuildVal := dockerBuild{
+			Image:         imageName,
+			NoCache:       nocache,
+			Squash:        squash,
+			HTTPProxy:     os.Getenv("http_proxy"),
+			HTTPSProxy:    os.Getenv("https_proxy"),
+			BuildArgMap:   buildArgMap,
+			BuildLabelMap: buildLabelMap,
+			Platforms:     platforms,
+			ExtraTags:     extraTags,
+			ForcePull:     forcePull,
+		}
+
+		command, args := getDockerBuildxCommand(dockerBuildVal)
+		fmt.Printf("Publishing with command: %v %v\n", command, args)
+
+		task := v2execute.ExecTask{
+			Cwd:         buildContext,
+			Command:     command,
+			Args:        args,
+			StreamStdio: !quietBuild,
+		}
+
+		res, err := task.Execute(context.TODO())
+
+		if err != nil {
+			return err
+		}
+
+		if res.ExitCode != 0 {
+			return fmt.Errorf("[%s] received non-zero exit code from build, error: %s", functionName, res.Stderr)
+		}
+
+		fmt.Printf("Image: %s built.\n", imageName)
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -9,6 +10,46 @@ import (
 
 	"github.com/openfaas/go-sdk/stack"
 )
+
+func Test_resolveTemplateDirFromHandler_UsesClosestAncestor(t *testing.T) {
+	root := t.TempDir()
+	templateRoot := filepath.Join(root, "template")
+	templateYAML := filepath.Join(templateRoot, "python3-http", "template.yml")
+	handlerDir := filepath.Join(root, "workflows", "linear2", "a")
+
+	if err := os.MkdirAll(filepath.Dir(templateYAML), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(templateYAML, []byte("fprocess: python index.py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(handlerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := resolveTemplateDirFromHandler(handlerDir, "python3-http")
+	want := templateRoot
+
+	if got != want {
+		t.Fatalf("resolveTemplateDirFromHandler(%q) = %q; want %q", handlerDir, got, want)
+	}
+}
+
+func Test_resolveTemplateDirFromHandler_FallbackToDefault(t *testing.T) {
+	handlerDir := filepath.Join(t.TempDir(), "handler")
+	if err := os.MkdirAll(handlerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := resolveTemplateDirFromHandler(handlerDir, "python3-http")
+	want := "./template"
+
+	if got != want {
+		t.Fatalf("resolveTemplateDirFromHandler(%q) = %q; want %q", handlerDir, got, want)
+	}
+}
 
 func Test_getDockerBuildCommand_NoOpts(t *testing.T) {
 	dockerBuildVal := dockerBuild{

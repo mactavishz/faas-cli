@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/openfaas/faas-cli/test"
+	"github.com/openfaas/go-sdk/stack"
 )
 
 func prepareTinyFaaSDeployTest(t *testing.T) {
@@ -254,6 +255,12 @@ func Test_resolveHandlerPath(t *testing.T) {
 			expected:    "/absolute/handler",
 		},
 		{
+			name:        "empty handler returns as-is",
+			yamlFile:    "/some/path/stack.yml",
+			handlerPath: "",
+			expected:    "",
+		},
+		{
 			name:        "relative handler resolved from yaml directory",
 			yamlFile:    "tests/workflows/tinyfaas/linear3/stack.yml",
 			handlerPath: "./a",
@@ -287,6 +294,223 @@ func Test_resolveHandlerPath(t *testing.T) {
 					tt.yamlFile, tt.handlerPath, result, tt.expected)
 			}
 		})
+	}
+}
+
+func Test_resolveStackFunctionHandlerPaths(t *testing.T) {
+	t.Run("nil services is a no-op", func(t *testing.T) {
+		resolveStackFunctionHandlerPaths("/tmp/stack.yml", nil)
+	})
+
+	t.Run("relative handlers resolved from stack directory", func(t *testing.T) {
+		services := &stack.Services{
+			Functions: map[string]stack.Function{
+				"a": {Handler: "./a"},
+				"b": {Handler: "handler"},
+				"c": {Handler: "/opt/functions/c"},
+				"d": {Handler: ""},
+			},
+		}
+
+		resolveStackFunctionHandlerPaths("/workspace/workflows/stack.yml", services)
+
+		if got, want := services.Functions["a"].Handler, filepath.Join("/workspace/workflows", "./a"); got != want {
+			t.Fatalf("handler a mismatch, got %q, want %q", got, want)
+		}
+
+		if got, want := services.Functions["b"].Handler, filepath.Join("/workspace/workflows", "handler"); got != want {
+			t.Fatalf("handler b mismatch, got %q, want %q", got, want)
+		}
+
+		if got, want := services.Functions["c"].Handler, "/opt/functions/c"; got != want {
+			t.Fatalf("handler c mismatch, got %q, want %q", got, want)
+		}
+
+		if got, want := services.Functions["d"].Handler, ""; got != want {
+			t.Fatalf("handler d mismatch, got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("empty yaml path leaves handlers unchanged", func(t *testing.T) {
+		services := &stack.Services{
+			Functions: map[string]stack.Function{
+				"a": {Handler: "./a"},
+			},
+		}
+
+		resolveStackFunctionHandlerPaths("", services)
+
+		if got, want := services.Functions["a"].Handler, "./a"; got != want {
+			t.Fatalf("handler mismatch, got %q, want %q", got, want)
+		}
+	})
+}
+
+func Test_resolveTemplateDirectory(t *testing.T) {
+	tests := []struct {
+		name     string
+		yamlFile string
+		expected string
+	}{
+		{
+			name:     "empty yaml uses cwd template",
+			yamlFile: "",
+			expected: "./template",
+		},
+		{
+			name:     "stack yaml resolves template directory",
+			yamlFile: filepath.Join("tests", "workflows", "openfaas", "linear2", "stack.yaml"),
+			expected: filepath.Join("tests", "workflows", "openfaas", "linear2", "template"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveTemplateDirectory(tt.yamlFile); got != tt.expected {
+				t.Fatalf("resolveTemplateDirectory(%q) = %q; want %q", tt.yamlFile, got, tt.expected)
+			}
+		})
+	}
+}
+
+func Test_stackHasLocalTemplates(t *testing.T) {
+	projectDir := t.TempDir()
+	stackPath := filepath.Join(projectDir, "stack.yaml")
+
+	if err := os.WriteFile(stackPath, []byte("version: 1.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	templateDir := filepath.Join(projectDir, "template", "python3-http")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(templateDir, "template.yml"), []byte("fprocess: python index.py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	functions := map[string]stack.Function{
+		"a": {Language: "python3-http"},
+		"b": {Language: "dockerfile"},
+	}
+
+	if !stackHasLocalTemplates(stackPath, functions) {
+		t.Fatal("expected stackHasLocalTemplates to be true")
+	}
+
+	delete(functions, "a")
+	functions["a"] = stack.Function{Language: "node20"}
+
+	if stackHasLocalTemplates(stackPath, functions) {
+		t.Fatal("expected stackHasLocalTemplates to be false for missing language template")
+	}
+}
+
+func Test_resolveTemplateYAMLPath_PrefersStackTemplate(t *testing.T) {
+	stackDir := t.TempDir()
+	stackPath := filepath.Join(stackDir, "stack.yaml")
+
+	if err := os.WriteFile(stackPath, []byte("version: 1.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stackTemplate := filepath.Join(stackDir, "template", "python3-http", "template.yml")
+	if err := os.MkdirAll(filepath.Dir(stackTemplate), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(stackTemplate, []byte("fprocess: python index.py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveTemplateYAMLPath(stackPath, "python3-http")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if got != stackTemplate {
+		t.Fatalf("resolveTemplateYAMLPath picked %q, want %q", got, stackTemplate)
+	}
+}
+
+func Test_resolveTemplateYAMLPath_FallsBackToCWDTemplate(t *testing.T) {
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cwd := t.TempDir()
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+
+	cwdTemplate := filepath.Join("template", "python3-http", "template.yml")
+	if err := os.MkdirAll(filepath.Dir(cwdTemplate), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(cwdTemplate, []byte("fprocess: python index.py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stackDir := t.TempDir()
+	stackPath := filepath.Join(stackDir, "stack.yaml")
+	if err := os.WriteFile(stackPath, []byte("version: 1.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveTemplateYAMLPath(stackPath, "python3-http")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if filepath.Clean(got) != filepath.Clean(cwdTemplate) {
+		t.Fatalf("resolveTemplateYAMLPath picked %q, want %q", got, cwdTemplate)
+	}
+}
+
+func Test_deriveFprocess_FallsBackToCWDTemplate(t *testing.T) {
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldYAML := yamlFile
+	cwd := t.TempDir()
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+		yamlFile = oldYAML
+	})
+
+	cwdTemplate := filepath.Join("template", "python3-http", "template.yml")
+	if err := os.MkdirAll(filepath.Dir(cwdTemplate), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(cwdTemplate, []byte("fprocess: python index.py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stackDir := t.TempDir()
+	yamlFile = filepath.Join(stackDir, "stack.yaml")
+	if err := os.WriteFile(yamlFile, []byte("version: 1.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fprocess, err := deriveFprocess(stack.Function{Language: "python3-http"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if fprocess != "python index.py" {
+		t.Fatalf("deriveFprocess() = %q, want %q", fprocess, "python index.py")
 	}
 }
 

@@ -165,6 +165,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 		if parsedServices != nil {
 			services = *parsedServices
+			resolveStackFunctionHandlerPaths(yamlFile, &services)
 		}
 	}
 
@@ -177,7 +178,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		if err = pullStackTemplates(newTemplateInfos, cmd); err != nil {
 			return fmt.Errorf("could not pull templates from function yaml file: %s", err.Error())
 		}
-	} else {
+	} else if !stackHasLocalTemplates(yamlFile, services.Functions) {
 		templateAddress := getTemplateURL("", os.Getenv(templateURLEnvironment), DefaultTemplateRepository)
 		if err := pullTemplates(templateAddress, templateName); err != nil {
 			return fmt.Errorf("could not pull templates: %v", err)

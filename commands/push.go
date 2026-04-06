@@ -58,6 +58,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 		if parsedServices != nil {
 			services = *parsedServices
+			resolveStackFunctionHandlerPaths(yamlFile, &services)
 		}
 	}
 
