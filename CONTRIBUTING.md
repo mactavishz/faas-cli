@@ -58,11 +58,10 @@ To build the release binaries type in:
 
 This creates the faas-cli for Mac, Windows, Linux x64, Linux ARMHF and Linux ARM64.
 
-* The project manages dependencies using Go modules and the `vendor/` folder. When updating a dependency you must run
+* The project manages dependencies using Go modules. When updating a dependency you must run
 
 ```bash
 go mod tidy
-go mod vendor
 ```
 
 ### How to update the `brew` formula

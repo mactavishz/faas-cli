@@ -1,4 +1,4 @@
-GO_FILES?=$$(find . -name '*.go' |grep -v vendor)
+GO_FILES?=$$(find . -name '*.go')
 TAG?=latest
 
 .GIT_COMMIT=$(shell git rev-parse HEAD)
@@ -7,8 +7,6 @@ TAG?=latest
 ifneq ($(.GIT_UNTRACKEDCHANGES),)
 	.GIT_COMMIT := $(.GIT_COMMIT)-dirty
 endif
-
-export GOFLAGS=-mod=vendor
 
 .PHONY: build
 build:
@@ -73,7 +71,7 @@ dist:
 
 .PHONY: test-unit
 test-unit:
-	go test $(shell go list ./... | grep -v /vendor/ | grep -v /template/ | grep -v build) -cover
+	go test $(shell go list ./... | grep -v /template/ | grep -v build) -cover
 
 .PHONY: ci-armhf-push
 ci-armhf-push:
@@ -98,4 +96,3 @@ FUNCTION_UP_TIMEOUT?=30
 .EXPORT_ALL_VARIABLES:
 test-templating:
 	./build_integration_test.sh
-

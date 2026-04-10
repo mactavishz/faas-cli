@@ -12,7 +12,6 @@ ARG GIT_COMMIT
 ARG VERSION
 
 ENV GO111MODULE=on
-ENV GOFLAGS=-mod=vendor
 ENV CGO_ENABLED=0
 
 WORKDIR /usr/bin/
@@ -22,15 +21,19 @@ COPY --from=license-check /license-check /usr/bin/
 WORKDIR /go/src/github.com/openfaas/faas-cli
 COPY . .
 
-# Run a gofmt and exclude all vendored code.
-RUN test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path "./vendor/*"))" || { echo "Run \"gofmt -s -w\" on your Golang code"; exit 1; }
+# Use released go-sdk module inside container builds.
+RUN go mod edit -dropreplace github.com/openfaas/go-sdk
+RUN go mod download
+
+# Run gofmt validation.
+RUN test -z "$(gofmt -l $(find . -type f -name '*.go'))" || { echo "Run \"gofmt -s -w\" on your Golang code"; exit 1; }
 
 # ldflags "-s -w" strips binary
 # ldflags -X injects commit version into binary
 RUN /usr/bin/license-check -path ./ --verbose=false "Alex Ellis" "OpenFaaS Author(s)" "OpenFaaS Ltd"
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go test $(go list ./... | grep -v /vendor/ | grep -v /template/|grep -v /build/|grep -v /sample/) -cover
+    go test $(go list ./... | grep -v /template/|grep -v /build/|grep -v /sample/) -cover
 
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build --ldflags "-s -w \
