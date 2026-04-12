@@ -1,65 +1,17 @@
-## faas-cli
+# OpenFaaS faas-cli
 
-[![Build Status](https://github.com/openfaas/faas-cli/workflows/build/badge.svg?branch=master)](https://github.com/openfaas/faas-cli/actions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/openfaas/faas-cli)](https://goreportcard.com/report/github.com/openfaas/faas-cli)
+This is a fork of the faas-cli used for research purposes, please refer to the [original faas-cli repository](https://github.com/openfaas/faas-cli).
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![OpenFaaS](https://img.shields.io/badge/openfaas-serverless-blue.svg)](https://www.openfaas.com)
 
 faas-cli is the official CLI for [OpenFaaS](https://github.com/openfaas/faas)
 
-This repo is a fork of faas-cli.
-
 Run a demo with `faas-cli --help`
 
 The CLI can be used to build and deploy functions to [OpenFaaS](https://github.com/openfaas/faas). You can build OpenFaaS functions from a set of supported language templates (such as Node.js, Python, CSharp and Ruby). That means you just write a handler file such as (handler.py/handler.js) and the CLI does the rest to create a Docker image.
 
-New user? See how it works: [Morning coffee with the faas-cli](https://blog.alexellis.io/quickstart-openfaas-cli/)
-Already an OpenFaaS user? Try [5 tips and tricks for the OpenFaaS CLI](https://www.openfaas.com/blog/five-cli-tips/)
-
-### Get started: Install the CLI
-
-You can install the CLI with a `curl` utility script, `brew` or by downloading the binary from the releases page. Once installed you'll get the `faas-cli` command and `faas` alias.
-
-Utility script with `curl`:
-
-```
-$ curl -sSL https://cli.openfaas.com | sudo sh
-```
-
-Non-root with curl (requires further actions as advised after downloading):
-
-```
-$ curl -sSL https://cli.openfaas.com | sh
-```
-
-Via brew:
-
-```
-$ brew install faas-cli
-```
-
-Note: The `brew` release may not run the latest minor release but is updated regularly.
-
-Via npm (coming soon):
-
-```
-$ npm install --global @openfaas/faas-cli
-```
-
-Note: See `npm` specific installation instructions and usage in the [npm README.md](https://github.com/openfaas/faas-cli/blob/master/npm/README.md)
-
-#### Windows
-
-To install the faas-cli on Windows go to [Releases](https://github.com/openfaas/faas-cli/releases) and download the latest faas-cli.exe.
-
-Or in PowerShell:
-
-```
-$version = (Invoke-WebRequest "https://api.github.com/repos/openfaas/faas-cli/releases/latest" | ConvertFrom-Json)[0].tag_name
-(New-Object System.Net.WebClient).DownloadFile("https://github.com/openfaas/faas-cli/releases/download/$version/faas-cli.exe", "faas-cli.exe")
-```
-
-#### Build from source
+## Build from source
 
 The [contributing guide](CONTRIBUTING.md) has instructions for building from source and for configuring a Golang development environment.
 
@@ -97,7 +49,7 @@ The default gateway URL of `127.0.0.1:8080` can be overridden in three places in
 
 For Kubernetes users you may want to set this in your `.bash_rc` file:
 
-```
+```bash
 export OPENFAAS_URL=http://127.0.0.1:31112
 ```
 
@@ -118,46 +70,7 @@ Help for all of the commands supported by the CLI can be found by running:
 
 You can chose between using a [programming language template](https://github.com/openfaas/templates/tree/master/template) where you only need to provide a handler file, or a Docker that you can build yourself.
 
-#### `faas-cli pro auth`
-
-The `auth` command is only licensed for OpenFaaS Pro customers.
-
-Use the `auth` command to obtain a JWT to use as a Bearer token.
-
-##### `code` grant - default
-
-Use this flow to obtain a token for interactive use from your workstation.
-
-The code grant flow uses the PKCE extension.
-
-At this time the `token` cannot be saved or retained in your OpenFaaS config file. You can pass the token using a CLI flag of `--token=$TOKEN`.
-
-Example:
-
-```sh
-faas-cli pro auth \
-  --auth-url https://tenant0.eu.auth0.com/authorize \
-  --token-url https://tenant0.eu.auth0.com/oauth/token \
-  --audience http://gw.example.com \
-  --client-id "${OAUTH_CLIENT_ID}"
-```
-
-##### `client_credentials` grant
-
-Use this flow for machine to machine communication such as when you want to deploy a function to a gateway that uses OAuth2 / OIDC.
-
-Example:
-
-```sh
-faas-cli pro auth \
-  --grant client_credentials \
-  --auth-url https://tenant0.eu.auth0.com/oauth/token \
-  --client-id "${OAUTH_CLIENT_ID}" \
-  --client-secret "${OAUTH_CLIENT_SECRET}"\
-  --audience http://gw.example.com
-```
-
-##### Environment variable substitution
+#### Environment variable substitution
 
 The CLI supports the use of `envsubst`-style templates. This means that you can have a single file with multiple configuration options such as for different user accounts, versions or environments.
 
@@ -173,15 +86,15 @@ functions:
 
 Use the default:
 
-```sh
-$ faas-cli build
-$ DOCKER_USER="" faas-cli build
+```bash
+faas-cli build
+DOCKER_USER="" faas-cli build
 ```
 
 Override with "alexellis2":
 
-```
-$ DOCKER_USER="alexellis2" faas-cli build
+```bash
+DOCKER_USER="alexellis2" faas-cli build
 ```
 
 See also: [envsubst package from Drone](https://github.com/drone/envsubst).
@@ -224,20 +137,6 @@ To get more detail on a template just use the `template store describe` command 
 
 > Note: This feature is still in experimental stage and in the future the CLI verbs might be changed
 
-#### HMAC
-
-It is possible to sign a `faas-cli invoke` request using a sha1 HMAC.  To do this, the name of a header to hold the code during transmission should be specified using the `--sign` flag, and the shared secret used to hash the message should be provided through `--key`. E.g.
-
-```sh
-$ echo -n OpenFaaS | faas-cli invoke env --sign X-Hub-Signature --key yoursecret
-```
-
-Results in the following header being added:
-
-```
-Http_X_Hub_Signature=sha1=2fc4758f8755f57f6e1a59799b56f8a6cf33b13f
-```
-
 #### Docker image as a function
 
 Specify `lang: Dockerfile` if you want the faas-cli to execute a build or `skip_build: true` for pre-built images.
@@ -266,7 +165,8 @@ You could also have you password in a file, or environment variable and echo/cat
 If you are using a different registry (that is not ECR) then also provide a `--server` as well.
 
 #### Prepare your Docker registry (if using AWS ECR)
-```
+
+```bash
 faas-cli registry-login --ecr --region <your-aws-region> --account-id <your-account-id>
 ```
 
@@ -313,16 +213,16 @@ This url-ping function is defined in the sample/url-ping folder makes use of Pyt
 
 * Build the files in the .yml file:
 
-```sh
-$ faas-cli build
+```bash
+faas-cli build
 ```
 
 > `-f` specifies the file or URL to download your YAML file from. The long version of the `-f` flag is: `--yaml`.
 
 You can also download over HTTP(s), for example:
 
-```sh
-$ faas-cli build -f https://raw.githubusercontent.com/openfaas/store-functions/master/stack.yml
+```bash
+faas-cli build -f https://raw.githubusercontent.com/openfaas/store-functions/master/stack.yml
 ```
 
 Docker along with a Python template will be used to build an image named alexellis2/faas-urlping.
@@ -331,8 +231,8 @@ Docker along with a Python template will be used to build an image named alexell
 
 Now you can use the following command to deploy your function(s):
 
-```sh
-$ faas-cli deploy
+```bash
+faas-cli deploy
 ```
 
 ### Access functions with `curl`
@@ -343,13 +243,13 @@ You can initiate a HTTP POST via `curl`:
 * or with `--data-binary @filename.txt` to send a whole file including newlines
 * if you want to pass input from STDIN then use `--data-binary @-`
 
-```sh
-$ curl -d '{"hello": "world"}' http://127.0.0.1:8080/function/nodejs-echo
+```bash
+curl -d '{"hello": "world"}' http://127.0.0.1:8080/function/nodejs-echo
 { nodeVersion: 'v6.9.1', input: '{"hello": "world"}' }
 
-$ curl --data-binary @README.md http://127.0.0.1:8080/function/nodejs-echo
+curl --data-binary @README.md http://127.0.0.1:8080/function/nodejs-echo
 
-$ uname -a | curl http://127.0.0.1:8080/function/nodejs-echo--data-binary @-
+uname -a | curl http://127.0.0.1:8080/function/nodejs-echo--data-binary @-
 ```
 
 > For further instructions on the manual CLI flags (without using a YAML file) read [manual_cli.md](https://github.com/openfaas/faas-cli/blob/master/MANUAL_CLI.md)

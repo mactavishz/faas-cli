@@ -1,6 +1,6 @@
-## Contributing
+# Contributing
 
-### License
+## License
 
 This project is licensed under the MIT License.
 
@@ -12,9 +12,9 @@ See guide for [FaaS](https://github.com/openfaas/faas/blob/master/CONTRIBUTING.m
 
 Please follow style guide on [this blog post](https://blog.alexellis.io/golang-writing-unit-tests/) from [The Go Programming Language](https://www.amazon.co.uk/Programming-Language-Addison-Wesley-Professional-Computing/dp/0134190440)
 
-# Hacking on the faas-cli
+## Hacking on the faas-cli
 
-## Installation / pre-requirements
+### Installation / pre-requirements
 
 * Docker
 
@@ -52,7 +52,7 @@ $ make local-install
 
 To build the release binaries type in:
 
-```
+```bash
 ./extract_binaries.sh
 ```
 
@@ -74,7 +74,7 @@ If the only change required is a version bump, ie no new tests, or changes to ex
 
 For example (supplying both the new version tag and its associated Git sha-256).
 
-```
+```bash
 brew bump-formula-pr --strict faas-cli --tag=<version> --revision=<sha-256>
 ```
 
@@ -86,8 +86,8 @@ https://github.com/Homebrew/homebrew-core/blob/master/CONTRIBUTING.md
 
 After `brew edit` run the build and test the results:
 
-```
-$ brew uninstall --force faas-cli ; \
+```bash
+brew uninstall --force faas-cli ; \
   brew install --build-from-source faas-cli ; \
   brew test faas-cli ; \
   brew audit --strict faas-cli
@@ -97,16 +97,17 @@ $ brew uninstall --force faas-cli ; \
 
 The `scoop` manifest for the faas-cli is part of the official [scoop](https://github.com/lukesampson/scoop/blob/master/bucket/faas-cli.json) repo on Github. It needs to be updated for each subsequent release.
 
-#### Simple version bumps
+#### Version bumps
 
-```
+```bash
 git clone https://github.com/lukesampson/scoop
 cd scoop
 ./bin/checkver.ps1 faas-cli -u
 ```
 
 Test the updated manifest
-```
+
+```bash
 scoop install .\bucket\faas-cli.json
 ```
 
@@ -131,7 +132,7 @@ signature certifies that you wrote the patch or otherwise have the right to pass
 it on as an open-source patch. The rules are pretty simple: if you can certify
 the below (from [developercertificate.org](http://developercertificate.org/)):
 
-```
+```text
 Developer Certificate of Origin
 Version 1.1
 
@@ -172,7 +173,9 @@ By making a contribution to this project, I certify that:
 
 Then you just add a line to every git commit message:
 
+```text
     Signed-off-by: Joe Smith <joe.smith@email.com>
+```
 
 Use your real name (sorry, no pseudonyms or anonymous contributions.)
 
@@ -193,22 +196,17 @@ Finally if the binaries were added successfully you should un-mark the "pre-rele
 
 See above for notes on Brew. At present the brew team are auto-releasing PRs to their database when we make releases.
 
-Community packages:
-
-* ~~Arch Linux PKGBUILD (see [rawkode](https://github.com/rawkode)) [unmaintained]~~
-* ~~Chocolately (see [pkeuter](https://github.com/pkeuter) via [au-packages](https://github.com/openfaas-incubator/au-packages)) [unmaintained]~~
-
 ### Update CHANGELOG
 
 Get the changelog tool (requires Ruby)
 
-```
-$ sudo gem install github_changelog_generator
+```bash
+sudo gem install github_changelog_generator
 ```
 
 Generate a personal access token in GitHub and use it to update the CHANGELOG.md file:
 
-```
-$ export CHANGELOG_GITHUB_TOKEN=TOKEN_VALUE
-$ github_changelog_generator
+```bash
+export CHANGELOG_GITHUB_TOKEN=TOKEN_VALUE
+github_changelog_generator
 ```

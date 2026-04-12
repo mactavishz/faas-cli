@@ -1,8 +1,8 @@
-### Manual CLI options
+# Manual CLI options
 
 In addition to YAML file support, you can use the CLI to build and deploy individual functions as follows:
 
-#### Worked example with Node.js
+## Worked example with Node.js
 
 So if you want to write in another language, just prepare a Dockerfile and build an image manually, like in the [FaaS samples](https://github.com/openfaas/faas/tree/master/sample-functions).
 
@@ -12,12 +12,12 @@ This will generate a Docker image for a Node.js function using the code in `/sam
 
 * The `faas-cli build` command can accept a `--lang` option of `python`, `node`, `ruby`, `csharp`, `python3`, `go`, or `dockerfile`.
 
-```
-   $ faas-cli build \
-      --image=alexellis2/node_info \
-      --lang=node \
-      --name=node_info \
-      --handler=./sample/node_info
+```bash
+faas-cli build \
+   --image=alexellis2/node_info \
+   --lang=node \
+   --name=node_info \
+   --handler=./sample/node_info
 
 Building: alexellis2/node_info with Docker. Please wait..
 ...
@@ -28,7 +28,7 @@ You can customise the code by editing the handler.js file and changing the `--ha
 
 For example:
 
-```
+```javascript
 "use strict"
 
 module.exports = (context, callback) => {
@@ -44,8 +44,8 @@ The CLI will then build a Docker image containing the FaaS watchdog and a bootst
 
 Now we can deploy the image as a named function called `node_info`.
 
-```
-$ faas-cli deploy \
+```bash
+faas-cli deploy \
    --image=alexellis2/node_info \
    --name=node_info
 
