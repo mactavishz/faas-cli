@@ -148,6 +148,47 @@ func Test_list_tinyFaaS_replicaRatiosVerbose(t *testing.T) {
 	}
 }
 
+func Test_list_faasd_replicaRatios(t *testing.T) {
+	expectedListResponse := []types.FunctionStatus{
+		{
+			Name:              "function-test-1",
+			Replicas:          1,
+			AvailableReplicas: 1,
+		},
+		{
+			Name:              "function-test-2",
+			Replicas:          1,
+			AvailableReplicas: 0,
+		},
+	}
+
+	s := test.MockHttpServer(t, []test.Request{
+		{
+			Method:             http.MethodGet,
+			Uri:                "/system/functions",
+			ResponseStatusCode: http.StatusOK,
+			ResponseBody:       expectedListResponse,
+		},
+	})
+	defer s.Close()
+
+	resetForTest()
+
+	stdOut := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"list",
+			"--gateway=" + s.URL,
+			"--platform",
+			"faasd",
+		})
+		faasCmd.Execute()
+	})
+
+	if !strings.Contains(stdOut, "1/1") || !strings.Contains(stdOut, "0/1") {
+		t.Fatalf("Output is not as expected:\n%s", stdOut)
+	}
+}
+
 func Test_list_tinyFaaS_fromYAMLProvider_withoutPlatformFlag(t *testing.T) {
 	expectedListResponse := []map[string]interface{}{
 		{

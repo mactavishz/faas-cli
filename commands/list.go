@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 
 	"github.com/openfaas/faas-cli/proxy"
 	"github.com/openfaas/faas-provider/types"
@@ -128,11 +127,7 @@ func runList(cmd *cobra.Command, args []string) error {
 }
 
 func formatListReplicas(function types.FunctionStatus, effectivePlatform string) string {
-	if effectivePlatform == platformTinyFaaS {
-		return fmt.Sprintf("%d/%d", function.AvailableReplicas, function.Replicas)
-	}
-
-	return strconv.FormatUint(function.Replicas, 10)
+	return fmt.Sprintf("%d/%d", function.AvailableReplicas, function.Replicas)
 }
 
 type byName []types.FunctionStatus
