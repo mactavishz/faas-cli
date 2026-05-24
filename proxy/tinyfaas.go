@@ -157,11 +157,15 @@ func (c *Client) DeployFunctionTinyFaaS(ctx context.Context, spec *DeployFunctio
 		return res.StatusCode, fmt.Sprintf("Error reading response: %s", err)
 	}
 
-	if res.StatusCode != http.StatusOK {
+	switch res.StatusCode {
+	case http.StatusOK, http.StatusCreated, http.StatusAccepted:
+		deployOutput := fmt.Sprintf("Deployed. %s.\n", res.Status)
+		deployedURL := fmt.Sprintf("URL: %s/fn/%s", c.GatewayURL.String(), generateFuncStr(spec))
+		deployOutput += fmt.Sprintln(deployedURL)
+		return res.StatusCode, deployOutput
+	default:
 		return res.StatusCode, fmt.Sprintf("tinyFaaS returned error: %s", string(responseBody))
 	}
-
-	return res.StatusCode, fmt.Sprintf("Function %s deployed successfully\n%s", spec.FunctionName, string(responseBody))
 }
 
 // DeleteFunctionTinyFaaS deletes a function from tinyFaaS

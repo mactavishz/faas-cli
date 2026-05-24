@@ -546,7 +546,10 @@ func Test_deployTinyFaaS_WithHandler(t *testing.T) {
 	if !strings.Contains(stdOut, "Packaging function handler from: "+handlerDir) {
 		t.Fatalf("expected handler packaging output, got: %s", stdOut)
 	}
-	if !strings.Contains(stdOut, "Function test-function deployed successfully") {
+	if !strings.Contains(stdOut, "Deployed. 200 OK.") {
+		t.Fatalf("expected deploy success output, got: %s", stdOut)
+	}
+	if !strings.Contains(stdOut, "URL: "+server.URL+"/fn/test-function") {
 		t.Fatalf("expected deploy success output, got: %s", stdOut)
 	}
 }
@@ -598,7 +601,10 @@ func Test_deployTinyFaaS_WithYAML(t *testing.T) {
 	if !strings.Contains(stdOut, "Packaging function handler from: "+filepath.Join(projectDir, "./handler")) {
 		t.Fatalf("expected YAML handler packaging output, got: %s", stdOut)
 	}
-	if !strings.Contains(stdOut, "Function yaml-function deployed successfully") {
+	if !strings.Contains(stdOut, "Deployed. 200 OK.") {
+		t.Fatalf("expected deploy success output, got: %s", stdOut)
+	}
+	if !strings.Contains(stdOut, "URL: "+server.URL+"/fn/yaml-function") {
 		t.Fatalf("expected deploy success output, got: %s", stdOut)
 	}
 }
@@ -648,7 +654,10 @@ func Test_deployTinyFaaS_WithYAML_ExplicitPlatformOverridesProvider(t *testing.T
 	if *requestCount != 1 {
 		t.Fatalf("expected 1 upload request, got %d", *requestCount)
 	}
-	if !strings.Contains(stdOut, "Function yaml-function deployed successfully") {
+	if !strings.Contains(stdOut, "Deployed. 200 OK.") {
+		t.Fatalf("expected tinyFaaS deploy output, got: %s", stdOut)
+	}
+	if !strings.Contains(stdOut, "URL: "+server.URL+"/fn/yaml-function") {
 		t.Fatalf("expected tinyFaaS deploy output, got: %s", stdOut)
 	}
 }

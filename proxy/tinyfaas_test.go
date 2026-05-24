@@ -235,7 +235,10 @@ func Test_DeployFunctionTinyFaaS_MultipartRequest(t *testing.T) {
 	if statusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d (%s)", statusCode, output)
 	}
-	if !strings.Contains(output, "Function echo deployed successfully") {
+	if !strings.Contains(output, "Deployed. 200 OK.") {
+		t.Fatalf("unexpected output: %s", output)
+	}
+	if !strings.Contains(output, "URL: "+s.URL+"/fn/echo") {
 		t.Fatalf("unexpected output: %s", output)
 	}
 }
