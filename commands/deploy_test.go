@@ -346,6 +346,22 @@ func Test_resolveStackFunctionHandlerPaths(t *testing.T) {
 	})
 }
 
+func Test_resolveStackFunctionImageArchivePaths(t *testing.T) {
+	services := &stack.Services{Functions: map[string]stack.Function{
+		"archive": {Image: "./dist/fn.tar"},
+		"remote":  {Image: "ghcr.io/example/fn:latest"},
+	}}
+
+	resolveStackFunctionImageArchivePaths("/workspace/workflows/stack.yml", services)
+
+	if got := services.Functions["archive"].Image; got != "/workspace/workflows/dist/fn.tar" {
+		t.Fatalf("archive image path = %q", got)
+	}
+	if got := services.Functions["remote"].Image; got != "ghcr.io/example/fn:latest" {
+		t.Fatalf("remote image path = %q", got)
+	}
+}
+
 func Test_resolveTemplateDirectory(t *testing.T) {
 	tests := []struct {
 		name     string

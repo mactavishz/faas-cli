@@ -61,6 +61,10 @@ func PublishImage(image string, handler string, functionName string, language st
 	}
 
 	imageName := schema.BuildImageName(tagMode, image, version, branch)
+	archiveOutput := isLocalImageArchive(image)
+	if archiveOutput {
+		imageName = localArchiveImageRef(functionName)
+	}
 
 	buildOptPackages, err := getBuildOptionPackages(buildOptions, language, langTemplate.BuildOptions)
 	if err != nil {
@@ -71,6 +75,9 @@ func PublishImage(image string, handler string, functionName string, language st
 	fmt.Printf("Building: %s with %s template. Please wait..\n", imageName, language)
 
 	if remoteBuilder != "" {
+		if archiveOutput {
+			return fmt.Errorf("archive output is not supported with --remote-builder")
+		}
 
 		if forcePull {
 			return fmt.Errorf("--pull is not supported with --remote-builder")
@@ -144,9 +151,16 @@ func PublishImage(image string, handler string, functionName string, language st
 			Platforms:     platforms,
 			ExtraTags:     extraTags,
 			ForcePull:     forcePull,
+			Output:        image,
 		}
 
 		command, args := getDockerBuildxCommand(dockerBuildVal)
+		if archiveOutput {
+			if err := os.MkdirAll(filepath.Dir(image), 0o755); err != nil {
+				return fmt.Errorf("create image archive directory: %w", err)
+			}
+			command, args = getDockerBuildxArchiveCommand(dockerBuildVal)
+		}
 		fmt.Printf("Publishing with command: %v %v\n", command, args)
 
 		task := v2execute.ExecTask{

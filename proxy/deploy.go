@@ -9,8 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/openfaas/go-sdk/stack"
@@ -48,6 +51,7 @@ type DeployFunctionSpec struct {
 	TLSInsecure             bool
 	Token                   string
 	Namespace               string
+	ImageArchivePath        string
 }
 
 func generateFuncStr(spec *DeployFunctionSpec) string {
@@ -134,7 +138,47 @@ func (c *Client) deploy(context context.Context, spec *DeployFunctionSpec, updat
 	}
 
 	reqBytes, _ := json.Marshal(&req)
-	reader := bytes.NewReader(reqBytes)
+	var reader io.Reader = bytes.NewReader(reqBytes)
+	contentType := "application/json"
+
+	if spec.ImageArchivePath != "" {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+
+		meta, err := writer.CreateFormField("deployment")
+		if err != nil {
+			deployOutput += fmt.Sprintln(err)
+			return http.StatusInternalServerError, deployOutput
+		}
+		if _, err := meta.Write(reqBytes); err != nil {
+			deployOutput += fmt.Sprintln(err)
+			return http.StatusInternalServerError, deployOutput
+		}
+
+		file, err := os.Open(spec.ImageArchivePath)
+		if err != nil {
+			deployOutput += fmt.Sprintln(err)
+			return http.StatusInternalServerError, deployOutput
+		}
+		defer file.Close()
+
+		part, err := writer.CreateFormFile("image", filepath.Base(spec.ImageArchivePath))
+		if err != nil {
+			deployOutput += fmt.Sprintln(err)
+			return http.StatusInternalServerError, deployOutput
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			deployOutput += fmt.Sprintln(err)
+			return http.StatusInternalServerError, deployOutput
+		}
+		if err := writer.Close(); err != nil {
+			deployOutput += fmt.Sprintln(err)
+			return http.StatusInternalServerError, deployOutput
+		}
+
+		reader = &body
+		contentType = writer.FormDataContentType()
+	}
 	var request *http.Request
 
 	method := http.MethodPost
@@ -146,13 +190,12 @@ func (c *Client) deploy(context context.Context, spec *DeployFunctionSpec, updat
 	query := url.Values{}
 
 	var err error
-	request, err = c.newRequest(method, "/system/functions", query, reader)
+	request, err = c.newRequestWithContentType(method, "/system/functions", query, reader, contentType)
 
 	if err != nil {
 		deployOutput += fmt.Sprintln(err)
 		return http.StatusInternalServerError, deployOutput
 	}
-
 	res, err := c.doRequest(context, request)
 
 	if err != nil {

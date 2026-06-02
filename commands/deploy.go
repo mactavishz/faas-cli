@@ -272,7 +272,13 @@ Error: %s`, fprocessErr.Error())
 				return err
 			}
 
-			function.Image = schema.BuildImageName(tagMode, function.Image, sha, branch)
+			imageArchivePath := ""
+			if effectivePlatform == platformFaasd && isLocalImageArchive(function.Image) {
+				imageArchivePath = resolveStackPath(yamlFile, function.Image)
+				function.Image = localArchiveImageRef(function.Name)
+			} else {
+				function.Image = schema.BuildImageName(tagMode, function.Image, sha, branch)
+			}
 
 			if deployFlags.readOnlyRootFilesystem {
 				function.ReadOnlyRootFilesystem = deployFlags.readOnlyRootFilesystem
@@ -295,6 +301,7 @@ Error: %s`, fprocessErr.Error())
 				TLSInsecure:             tlsInsecure,
 				Token:                   token,
 				Namespace:               function.Namespace,
+				ImageArchivePath:        imageArchivePath,
 			}
 
 			// Check if deploying to tinyFaaS
@@ -578,11 +585,28 @@ func badStatusCode(statusCode int) bool {
 // If yamlFilePath is empty, handlerPath is empty, or handlerPath is absolute,
 // handlerPath is returned as-is.
 func resolveHandlerPath(yamlFilePath, handlerPath string) string {
-	if yamlFilePath == "" || handlerPath == "" || filepath.IsAbs(handlerPath) {
-		return handlerPath
+	return resolveStackPath(yamlFilePath, handlerPath)
+}
+
+func resolveStackPath(yamlFilePath, value string) string {
+	if yamlFilePath == "" || value == "" || filepath.IsAbs(value) {
+		return value
 	}
 	stackDir := filepath.Dir(yamlFilePath)
-	return filepath.Join(stackDir, handlerPath)
+	return filepath.Join(stackDir, value)
+}
+
+func isLocalImageArchive(image string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(image)), ".tar")
+}
+
+func localArchiveImageRef(functionName string) string {
+	name := strings.ToLower(strings.TrimSpace(functionName))
+	name = strings.ReplaceAll(name, "_", "-")
+	if name == "" {
+		name = "function"
+	}
+	return "faasd.local/" + name + ":latest"
 }
 
 // resolveStackFunctionHandlerPaths rewrites all function handlers from a stack
@@ -595,6 +619,19 @@ func resolveStackFunctionHandlerPaths(yamlFilePath string, services *stack.Servi
 	for name, function := range services.Functions {
 		function.Handler = resolveHandlerPath(yamlFilePath, function.Handler)
 		services.Functions[name] = function
+	}
+}
+
+func resolveStackFunctionImageArchivePaths(yamlFilePath string, services *stack.Services) {
+	if services == nil {
+		return
+	}
+
+	for name, function := range services.Functions {
+		if isLocalImageArchive(function.Image) {
+			function.Image = resolveStackPath(yamlFilePath, function.Image)
+			services.Functions[name] = function
+		}
 	}
 }
 

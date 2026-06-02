@@ -166,6 +166,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		if parsedServices != nil {
 			services = *parsedServices
 			resolveStackFunctionHandlerPaths(yamlFile, &services)
+			resolveStackFunctionImageArchivePaths(yamlFile, &services)
 		}
 	}
 
@@ -254,7 +255,7 @@ func build(services *stack.Services, queueDepth int, shrinkwrap, quietBuild bool
 					combinedBuildOptions := combineBuildOpts(function.BuildOptions, buildOptions)
 					combinedBuildArgMap := util.MergeMap(function.BuildArgs, buildArgMap)
 					combinedExtraPaths := util.MergeSlice(services.StackConfiguration.CopyExtraPaths, copyExtra)
-					err := builder.BuildImage(function.Image,
+					err := builder.BuildImageWithPlatforms(function.Image,
 						function.Handler,
 						function.Name,
 						function.Language,
@@ -270,6 +271,7 @@ func build(services *stack.Services, queueDepth int, shrinkwrap, quietBuild bool
 						remoteBuilder,
 						payloadSecretPath,
 						forcePull,
+						function.Platforms,
 					)
 
 					if err != nil {

@@ -54,6 +54,7 @@ func runDeployProxyTest(t *testing.T, deployTest deployProxyTest) {
 			tlsNoVerify,
 			"",
 			"",
+			"",
 		})
 	})
 
@@ -123,6 +124,7 @@ func Test_DeployFunction_generateFuncStr(t *testing.T) {
 				tlsNoVerify,
 				"",
 				"",
+				"",
 			},
 			expectedStr: "funcName",
 		},
@@ -146,6 +148,7 @@ func Test_DeployFunction_generateFuncStr(t *testing.T) {
 				tlsNoVerify,
 				"",
 				"nameSpace",
+				"",
 			},
 			expectedStr: "funcName.nameSpace",
 		},

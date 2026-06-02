@@ -33,6 +33,10 @@ const AdditionalPackageBuildArg = "ADDITIONAL_PACKAGE"
 // BuildImage construct Docker image from function parameters
 // TODO: refactor signature to a struct to simplify the length of the method header
 func BuildImage(image string, handler string, functionName string, language string, nocache bool, squash bool, shrinkwrap bool, buildArgMap map[string]string, buildOptions []string, tagFormat schema.BuildFormat, buildLabelMap map[string]string, quietBuild bool, copyExtraPaths []string, remoteBuilder, payloadSecretPath string, forcePull bool) error {
+	return BuildImageWithPlatforms(image, handler, functionName, language, nocache, squash, shrinkwrap, buildArgMap, buildOptions, tagFormat, buildLabelMap, quietBuild, copyExtraPaths, remoteBuilder, payloadSecretPath, forcePull, "")
+}
+
+func BuildImageWithPlatforms(image string, handler string, functionName string, language string, nocache bool, squash bool, shrinkwrap bool, buildArgMap map[string]string, buildOptions []string, tagFormat schema.BuildFormat, buildLabelMap map[string]string, quietBuild bool, copyExtraPaths []string, remoteBuilder, payloadSecretPath string, forcePull bool, platforms string) error {
 	templateDir := resolveTemplateDirFromHandler(handler, language)
 	pathToTemplateYAML := filepath.Join(templateDir, strings.ToLower(language), "template.yml")
 	if _, err := os.Stat(pathToTemplateYAML); err != nil && os.IsNotExist(err) {
@@ -73,7 +77,14 @@ func BuildImage(image string, handler string, functionName string, language stri
 		return err
 	}
 
+	archiveOutput := isLocalImageArchive(image)
 	imageName := schema.BuildImageName(tagFormat, image, version, branch)
+	if archiveOutput {
+		imageName = localArchiveImageRef(functionName)
+		if platforms == "" {
+			platforms = "linux/amd64,linux/arm64"
+		}
+	}
 
 	buildOptPackages, err := getBuildOptionPackages(buildOptions, language, langTemplate.BuildOptions)
 	if err != nil {
@@ -149,9 +160,17 @@ func BuildImage(image string, handler string, functionName string, language stri
 			BuildArgMap:   buildArgMap,
 			BuildLabelMap: buildLabelMap,
 			ForcePull:     forcePull,
+			Platforms:     platforms,
+			Output:        image,
 		}
 
 		command, args := getDockerBuildCommand(dockerBuildVal)
+		if archiveOutput {
+			if err := os.MkdirAll(filepath.Dir(image), 0o755); err != nil {
+				return fmt.Errorf("create image archive directory: %w", err)
+			}
+			command, args = getDockerBuildxArchiveCommand(dockerBuildVal)
+		}
 
 		envs := os.Environ()
 		if mountSSH {
@@ -291,6 +310,27 @@ func getDockerBuildCommand(build dockerBuild) (string, []string) {
 	return command, args
 }
 
+func getDockerBuildxArchiveCommand(build dockerBuild) (string, []string) {
+	flagSlice := buildFlagSlice(build.NoCache, build.Squash, build.HTTPProxy, build.HTTPSProxy, build.BuildArgMap, build.BuildLabelMap, build.ForcePull)
+	args := []string{"buildx", "build", "--progress=plain", "--platform=" + build.Platforms, "--output=type=oci,dest=" + build.Output}
+	args = append(args, flagSlice...)
+	args = append(args, "--tag", build.Image, ".")
+	return "docker", args
+}
+
+func isLocalImageArchive(image string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(image)), ".tar")
+}
+
+func localArchiveImageRef(functionName string) string {
+	name := strings.ToLower(strings.TrimSpace(functionName))
+	name = strings.ReplaceAll(name, "_", "-")
+	if name == "" {
+		name = "function"
+	}
+	return "faasd.local/" + name + ":latest"
+}
+
 type dockerBuild struct {
 	Image         string
 	Version       string
@@ -308,6 +348,8 @@ type dockerBuild struct {
 	ExtraTags []string
 
 	ForcePull bool
+
+	Output string
 }
 
 // pathInScope returns the absolute path to `path` and ensures that it is located within the

@@ -137,6 +137,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		if parsedServices != nil {
 			services = *parsedServices
 			resolveStackFunctionHandlerPaths(yamlFile, &services)
+			resolveStackFunctionImageArchivePaths(yamlFile, &services)
 		}
 	}
 
@@ -271,6 +272,10 @@ func publish(services *stack.Services, queueDepth int, shrinkwrap, quietBuild, m
 					combinedBuildOptions := combineBuildOpts(function.BuildOptions, buildOptions)
 					combinedBuildArgMap := util.MergeMap(function.BuildArgs, buildArgMap)
 					combinedExtraPaths := util.MergeSlice(services.StackConfiguration.CopyExtraPaths, copyExtra)
+					if isLocalImageArchive(function.Image) && remoteBuilder != "" {
+						errors = append(errors, fmt.Errorf("%s archive output is not supported with --remote-builder", function.Name))
+						continue
+					}
 					err := builder.PublishImage(function.Image,
 						function.Handler,
 						function.Name,
