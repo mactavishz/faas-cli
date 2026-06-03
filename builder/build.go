@@ -30,6 +30,14 @@ import (
 // Can also be passed as a build arg hence needs to be accessed from commands
 const AdditionalPackageBuildArg = "ADDITIONAL_PACKAGE"
 
+const (
+	buildEngineEnv       = "FAAS_CLI_BUILD_ENGINE"
+	buildPlatformsEnv    = "FAAS_CLI_BUILD_PLATFORMS"
+	buildEngineDocker    = "docker"
+	buildEngineNerdctl   = "nerdctl"
+	defaultArchiveTarget = "linux/amd64,linux/arm64"
+)
+
 // BuildImage construct Docker image from function parameters
 // TODO: refactor signature to a struct to simplify the length of the method header
 func BuildImage(image string, handler string, functionName string, language string, nocache bool, squash bool, shrinkwrap bool, buildArgMap map[string]string, buildOptions []string, tagFormat schema.BuildFormat, buildLabelMap map[string]string, quietBuild bool, copyExtraPaths []string, remoteBuilder, payloadSecretPath string, forcePull bool) error {
@@ -81,9 +89,7 @@ func BuildImageWithPlatforms(image string, handler string, functionName string, 
 	imageName := schema.BuildImageName(tagFormat, image, version, branch)
 	if archiveOutput {
 		imageName = localArchiveImageRef(functionName)
-		if platforms == "" {
-			platforms = "linux/amd64,linux/arm64"
-		}
+		platforms = resolveArchiveBuildPlatforms(platforms)
 	}
 
 	buildOptPackages, err := getBuildOptionPackages(buildOptions, language, langTemplate.BuildOptions)
@@ -169,7 +175,10 @@ func BuildImageWithPlatforms(image string, handler string, functionName string, 
 			if err := os.MkdirAll(filepath.Dir(image), 0o755); err != nil {
 				return fmt.Errorf("create image archive directory: %w", err)
 			}
-			command, args = getDockerBuildxArchiveCommand(dockerBuildVal)
+			command, args, err = getImageArchiveBuildCommand(dockerBuildVal, os.Getenv(buildEngineEnv))
+			if err != nil {
+				return err
+			}
 		}
 
 		envs := os.Environ()
@@ -316,6 +325,37 @@ func getDockerBuildxArchiveCommand(build dockerBuild) (string, []string) {
 	args = append(args, flagSlice...)
 	args = append(args, "--tag", build.Image, ".")
 	return "docker", args
+}
+
+func getNerdctlBuildArchiveCommand(build dockerBuild) (string, []string) {
+	flagSlice := buildFlagSlice(build.NoCache, build.Squash, build.HTTPProxy, build.HTTPSProxy, build.BuildArgMap, build.BuildLabelMap, build.ForcePull)
+	args := []string{"build", "--progress=plain", "--platform=" + build.Platforms, "--output=type=oci,dest=" + build.Output}
+	args = append(args, flagSlice...)
+	args = append(args, "--tag", build.Image, ".")
+	return "nerdctl", args
+}
+
+func getImageArchiveBuildCommand(build dockerBuild, engine string) (string, []string, error) {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "", buildEngineDocker:
+		command, args := getDockerBuildxArchiveCommand(build)
+		return command, args, nil
+	case buildEngineNerdctl:
+		command, args := getNerdctlBuildArchiveCommand(build)
+		return command, args, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported %s=%q for archive output; supported values are %q and %q", buildEngineEnv, engine, buildEngineDocker, buildEngineNerdctl)
+	}
+}
+
+func resolveArchiveBuildPlatforms(platforms string) string {
+	if override := strings.TrimSpace(os.Getenv(buildPlatformsEnv)); override != "" {
+		return override
+	}
+	if strings.TrimSpace(platforms) != "" {
+		return platforms
+	}
+	return defaultArchiveTarget
 }
 
 func isLocalImageArchive(image string) bool {

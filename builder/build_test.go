@@ -156,6 +156,75 @@ func Test_getDockerBuildCommand_WithBuildArg(t *testing.T) {
 	}
 }
 
+func Test_getImageArchiveBuildCommand_DefaultsToDockerBuildx(t *testing.T) {
+	dockerBuildVal := dockerBuild{
+		Image:       "faasd.local/fn:latest",
+		Platforms:   "linux/amd64,linux/arm64",
+		Output:      "./dist/fn.tar",
+		BuildArgMap: make(map[string]string),
+	}
+
+	command, args, err := getImageArchiveBuildCommand(dockerBuildVal, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "buildx build --progress=plain --platform=linux/amd64,linux/arm64 --output=type=oci,dest=./dist/fn.tar --tag faasd.local/fn:latest ."
+	if got := strings.Join(args, " "); got != want {
+		t.Fatalf("archive build args = %q, want %q", got, want)
+	}
+	if command != "docker" {
+		t.Fatalf("archive build command = %q, want docker", command)
+	}
+}
+
+func Test_getImageArchiveBuildCommand_Nerdctl(t *testing.T) {
+	dockerBuildVal := dockerBuild{
+		Image:       "faasd.local/fn:latest",
+		Platforms:   "linux/amd64",
+		Output:      "./dist/fn.tar",
+		BuildArgMap: make(map[string]string),
+	}
+
+	command, args, err := getImageArchiveBuildCommand(dockerBuildVal, buildEngineNerdctl)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "build --progress=plain --platform=linux/amd64 --output=type=oci,dest=./dist/fn.tar --tag faasd.local/fn:latest ."
+	if got := strings.Join(args, " "); got != want {
+		t.Fatalf("archive build args = %q, want %q", got, want)
+	}
+	if command != "nerdctl" {
+		t.Fatalf("archive build command = %q, want nerdctl", command)
+	}
+}
+
+func Test_getImageArchiveBuildCommand_RejectsUnsupportedEngine(t *testing.T) {
+	_, _, err := getImageArchiveBuildCommand(dockerBuild{}, "podman")
+	if err == nil {
+		t.Fatal("expected unsupported engine error")
+	}
+	if !strings.Contains(err.Error(), "unsupported FAAS_CLI_BUILD_ENGINE") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func Test_resolveArchiveBuildPlatforms(t *testing.T) {
+	t.Setenv(buildPlatformsEnv, "")
+	if got := resolveArchiveBuildPlatforms(""); got != defaultArchiveTarget {
+		t.Fatalf("default archive platforms = %q, want %q", got, defaultArchiveTarget)
+	}
+	if got := resolveArchiveBuildPlatforms("linux/arm64"); got != "linux/arm64" {
+		t.Fatalf("stack archive platforms = %q, want linux/arm64", got)
+	}
+
+	t.Setenv(buildPlatformsEnv, "linux/amd64")
+	if got := resolveArchiveBuildPlatforms("linux/amd64,linux/arm64"); got != "linux/amd64" {
+		t.Fatalf("override archive platforms = %q, want linux/amd64", got)
+	}
+}
+
 func Test_buildFlagSlice(t *testing.T) {
 
 	var buildFlagOpts = []struct {
