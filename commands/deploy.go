@@ -302,6 +302,16 @@ Error: %s`, fprocessErr.Error())
 				ImageArchivePath:        imageArchivePath,
 			}
 
+			if effectivePlatform == platformFaasd && deploySpec.ImageArchivePath != "" && deploySpec.Update {
+				exists, err := faasdFunctionExists(ctx, proxyClient, deploySpec.FunctionName, deploySpec.Namespace)
+				if err != nil {
+					return err
+				}
+				if !exists {
+					deploySpec.Update = false
+				}
+			}
+
 			// Check if deploying to tinyFaaS
 			var statusCode int
 			if effectivePlatform == platformTinyFaaS {
@@ -621,6 +631,16 @@ func defaultDeployTimeout(effectivePlatform string, services stack.Services, cur
 	default:
 		return currentTimeout, ""
 	}
+}
+
+func faasdFunctionExists(ctx context.Context, client *proxy.Client, name string, namespace string) (bool, error) {
+	if _, err := client.GetFunctionInfo(ctx, name, namespace); err != nil {
+		if strings.Contains(err.Error(), "no such function") {
+			return false, nil
+		}
+		return false, fmt.Errorf("check existing faasd function %s: %w", name, err)
+	}
+	return true, nil
 }
 
 func localArchiveImageRef(functionName string) string {

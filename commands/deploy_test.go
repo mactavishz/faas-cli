@@ -158,6 +158,85 @@ func newTinyFaaSUploadServer(t *testing.T, expectedName string) (*httptest.Serve
 	return server, &count
 }
 
+func newFaasdArchiveDeployServer(t *testing.T, expectedName string) (*httptest.Server, *int, *int, *int) {
+	t.Helper()
+
+	getCount := 0
+	postCount := 0
+	putCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/system/function/"+expectedName:
+			getCount++
+			http.NotFound(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == "/system/functions":
+			postCount++
+
+			mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil {
+				t.Fatalf("failed to parse content type: %v", err)
+			}
+			if mediaType != "multipart/form-data" {
+				t.Fatalf("expected multipart/form-data, got %s", mediaType)
+			}
+
+			reader := multipart.NewReader(r.Body, params["boundary"])
+			seenDeployment := false
+			seenImage := false
+
+			for {
+				part, err := reader.NextPart()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatalf("failed to read multipart request: %v", err)
+				}
+
+				switch part.FormName() {
+				case "deployment":
+					seenDeployment = true
+					var deployment struct {
+						Service string `json:"service"`
+						Image   string `json:"image"`
+					}
+					if err := json.NewDecoder(part).Decode(&deployment); err != nil {
+						t.Fatalf("failed to decode deployment: %v", err)
+					}
+					if deployment.Service != expectedName {
+						t.Fatalf("expected service %s, got %s", expectedName, deployment.Service)
+					}
+					if deployment.Image != localArchiveImageRef(expectedName) {
+						t.Fatalf("expected local archive image ref, got %s", deployment.Image)
+					}
+				case "image":
+					seenImage = true
+					payload, err := io.ReadAll(part)
+					if err != nil {
+						t.Fatalf("failed to read image part: %v", err)
+					}
+					if len(payload) == 0 {
+						t.Fatal("expected non-empty image payload")
+					}
+				}
+			}
+
+			if !seenDeployment || !seenImage {
+				t.Fatalf("expected deployment and image parts, got deployment=%v image=%v", seenDeployment, seenImage)
+			}
+
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPut && r.URL.Path == "/system/functions":
+			putCount++
+			t.Fatalf("archive-backed deploy should not upload PUT for missing function")
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	return server, &getCount, &postCount, &putCount
+}
+
 func Test_deploy(t *testing.T) {
 	s := test.MockHttpServer(t, []test.Request{
 		{
@@ -739,5 +818,67 @@ func Test_deployTinyFaaS_WithYAML_ExplicitPlatformOverridesProvider(t *testing.T
 	}
 	if !strings.Contains(stdOut, "URL: "+server.URL+"/fn/yaml-function") {
 		t.Fatalf("expected tinyFaaS deploy output, got: %s", stdOut)
+	}
+}
+
+func Test_deployFaasdArchiveMissingFunctionUsesCreate(t *testing.T) {
+	prepareTinyFaaSDeployTest(t)
+
+	projectDir := t.TempDir()
+	distDir := filepath.Join(projectDir, "dist")
+	if err := os.Mkdir(distDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(distDir, "fn.tar")
+	if err := os.WriteFile(archivePath, []byte("oci archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stackYAML := strings.Join([]string{
+		"provider:",
+		"  name: openfaas",
+		"functions:",
+		"  archive-function:",
+		"    lang: dockerfile",
+		"    image: ./dist/fn.tar",
+	}, "\n")
+	stackPath := filepath.Join(projectDir, "stack.yml")
+	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server, getCount, postCount, putCount := newFaasdArchiveDeployServer(t, "archive-function")
+	defer server.Close()
+
+	var err error
+	stdOut := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"deploy",
+			"--platform=faasd",
+			"--read-template=false",
+			"--update=true",
+			"--gateway=" + server.URL,
+			"--yaml=" + stackPath,
+		})
+		err = faasCmd.Execute()
+	})
+
+	if err != nil {
+		t.Fatalf("expected archive deploy to succeed, got error: %v", err)
+	}
+	if *getCount != 1 {
+		t.Fatalf("expected 1 function existence check, got %d", *getCount)
+	}
+	if *postCount != 1 {
+		t.Fatalf("expected 1 create request, got %d", *postCount)
+	}
+	if *putCount != 0 {
+		t.Fatalf("expected no update requests, got %d", *putCount)
+	}
+	if !strings.Contains(stdOut, "Using extended deploy timeout for faasd archive upload: 10m0s") {
+		t.Fatalf("expected faasd archive timeout output, got: %s", stdOut)
+	}
+	if !strings.Contains(stdOut, "Deployed. 200 OK.") {
+		t.Fatalf("expected deploy success output, got: %s", stdOut)
 	}
 }
