@@ -167,11 +167,9 @@ func runDeployCommand(cmd *cobra.Command, args []string, image string, fprocess 
 		}
 	}
 
-	// Use a longer default timeout for tinyFaaS deploys since image builds
-	// happen server-side and can easily exceed the standard 60s timeout.
-	if effectivePlatform == platformTinyFaaS && timeoutOverride == commandTimeout {
-		timeoutOverride = 10 * time.Minute
-		fmt.Printf("Using extended deploy timeout for tinyFaaS: %s (override with --timeout)\n", timeoutOverride)
+	if timeout, message := defaultDeployTimeout(effectivePlatform, services, timeoutOverride, cmd.Flags().Changed("timeout")); message != "" {
+		timeoutOverride = timeout
+		fmt.Println(message)
 	}
 
 	transport := GetDefaultCLITransport(tlsInsecure, &timeoutOverride)
@@ -598,6 +596,31 @@ func resolveStackPath(yamlFilePath, value string) string {
 
 func isLocalImageArchive(image string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(image)), ".tar")
+}
+
+func stackHasLocalImageArchive(services stack.Services) bool {
+	for _, function := range services.Functions {
+		if isLocalImageArchive(function.Image) {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultDeployTimeout(effectivePlatform string, services stack.Services, currentTimeout time.Duration, timeoutExplicit bool) (time.Duration, string) {
+	if timeoutExplicit || currentTimeout != commandTimeout {
+		return currentTimeout, ""
+	}
+
+	extendedTimeout := 10 * time.Minute
+	switch {
+	case effectivePlatform == platformTinyFaaS:
+		return extendedTimeout, fmt.Sprintf("Using extended deploy timeout for tinyFaaS: %s (override with --timeout)", extendedTimeout)
+	case effectivePlatform == platformFaasd && stackHasLocalImageArchive(services):
+		return extendedTimeout, fmt.Sprintf("Using extended deploy timeout for faasd archive upload: %s (override with --timeout)", extendedTimeout)
+	default:
+		return currentTimeout, ""
+	}
 }
 
 func localArchiveImageRef(functionName string) string {

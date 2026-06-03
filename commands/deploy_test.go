@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openfaas/faas-cli/test"
 	"github.com/openfaas/go-sdk/stack"
@@ -359,6 +360,69 @@ func Test_resolveStackFunctionImageArchivePaths(t *testing.T) {
 	}
 	if got := services.Functions["remote"].Image; got != "ghcr.io/example/fn:latest" {
 		t.Fatalf("remote image path = %q", got)
+	}
+}
+
+func Test_defaultDeployTimeout(t *testing.T) {
+	archiveServices := stack.Services{Functions: map[string]stack.Function{
+		"archive": {Image: "./dist/fn.tar"},
+	}}
+	registryServices := stack.Services{Functions: map[string]stack.Function{
+		"registry": {Image: "ghcr.io/example/fn:latest"},
+	}}
+	explicitTimeout := 2 * time.Minute
+
+	tests := []struct {
+		name            string
+		platform        string
+		services        stack.Services
+		currentTimeout  time.Duration
+		timeoutExplicit bool
+		wantTimeout     time.Duration
+		wantMessage     string
+	}{
+		{
+			name:           "faasd archive stack extends default timeout",
+			platform:       platformFaasd,
+			services:       archiveServices,
+			currentTimeout: commandTimeout,
+			wantTimeout:    10 * time.Minute,
+			wantMessage:    "Using extended deploy timeout for faasd archive upload: 10m0s (override with --timeout)",
+		},
+		{
+			name:           "faasd registry stack keeps default timeout",
+			platform:       platformFaasd,
+			services:       registryServices,
+			currentTimeout: commandTimeout,
+			wantTimeout:    commandTimeout,
+		},
+		{
+			name:           "tinyfaas extends default timeout",
+			platform:       platformTinyFaaS,
+			currentTimeout: commandTimeout,
+			wantTimeout:    10 * time.Minute,
+			wantMessage:    "Using extended deploy timeout for tinyFaaS: 10m0s (override with --timeout)",
+		},
+		{
+			name:            "explicit timeout is preserved",
+			platform:        platformFaasd,
+			services:        archiveServices,
+			currentTimeout:  explicitTimeout,
+			timeoutExplicit: true,
+			wantTimeout:     explicitTimeout,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTimeout, gotMessage := defaultDeployTimeout(tt.platform, tt.services, tt.currentTimeout, tt.timeoutExplicit)
+			if gotTimeout != tt.wantTimeout {
+				t.Fatalf("timeout = %s, want %s", gotTimeout, tt.wantTimeout)
+			}
+			if gotMessage != tt.wantMessage {
+				t.Fatalf("message = %q, want %q", gotMessage, tt.wantMessage)
+			}
+		})
 	}
 }
 
