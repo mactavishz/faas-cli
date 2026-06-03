@@ -74,7 +74,7 @@ func (c *Client) DeployFunction(context context.Context, spec *DeployFunctionSpe
 		// Re-run the function with update=false
 
 		statusCode, deployOutput = c.deploy(context, spec, false)
-	} else if statusCode == http.StatusOK {
+	} else if spec.Update && statusCode == http.StatusOK {
 		fmt.Println(rollingUpdateInfo)
 	}
 	fmt.Println()

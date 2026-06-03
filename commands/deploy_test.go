@@ -5,6 +5,7 @@ package commands
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -158,7 +159,7 @@ func newTinyFaaSUploadServer(t *testing.T, expectedName string) (*httptest.Serve
 	return server, &count
 }
 
-func newFaasdArchiveDeployServer(t *testing.T, expectedName string) (*httptest.Server, *int, *int, *int) {
+func newFaasdArchiveDeployServer(t *testing.T, expectedName string, exists bool) (*httptest.Server, *int, *int, *int) {
 	t.Helper()
 
 	getCount := 0
@@ -168,9 +169,18 @@ func newFaasdArchiveDeployServer(t *testing.T, expectedName string) (*httptest.S
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/system/function/"+expectedName:
 			getCount++
-			http.NotFound(w, r)
+			if !exists {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"name":%q}`, expectedName)))
 		case r.Method == http.MethodPost && r.URL.Path == "/system/functions":
 			postCount++
+			if exists {
+				t.Fatalf("archive-backed deploy should not upload POST for existing function")
+			}
 
 			mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil {
@@ -228,7 +238,44 @@ func newFaasdArchiveDeployServer(t *testing.T, expectedName string) (*httptest.S
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPut && r.URL.Path == "/system/functions":
 			putCount++
-			t.Fatalf("archive-backed deploy should not upload PUT for missing function")
+			if !exists {
+				t.Fatalf("archive-backed deploy should not upload PUT for missing function")
+			}
+
+			mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil {
+				t.Fatalf("failed to parse content type: %v", err)
+			}
+			if mediaType != "multipart/form-data" {
+				t.Fatalf("expected multipart/form-data, got %s", mediaType)
+			}
+
+			reader := multipart.NewReader(r.Body, params["boundary"])
+			seenDeployment := false
+			seenImage := false
+
+			for {
+				part, err := reader.NextPart()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatalf("failed to read multipart request: %v", err)
+				}
+
+				switch part.FormName() {
+				case "deployment":
+					seenDeployment = true
+				case "image":
+					seenImage = true
+				}
+			}
+
+			if !seenDeployment || !seenImage {
+				t.Fatalf("expected deployment and image parts, got deployment=%v image=%v", seenDeployment, seenImage)
+			}
+
+			w.WriteHeader(http.StatusOK)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -847,7 +894,7 @@ func Test_deployFaasdArchiveMissingFunctionUsesCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server, getCount, postCount, putCount := newFaasdArchiveDeployServer(t, "archive-function")
+	server, getCount, postCount, putCount := newFaasdArchiveDeployServer(t, "archive-function", false)
 	defer server.Close()
 
 	var err error
@@ -880,5 +927,67 @@ func Test_deployFaasdArchiveMissingFunctionUsesCreate(t *testing.T) {
 	}
 	if !strings.Contains(stdOut, "Deployed. 200 OK.") {
 		t.Fatalf("expected deploy success output, got: %s", stdOut)
+	}
+	if strings.Contains(stdOut, "already exists") {
+		t.Fatalf("missing function deploy should not report rolling update, got: %s", stdOut)
+	}
+}
+
+func Test_deployFaasdArchiveExistingFunctionUsesUpdate(t *testing.T) {
+	prepareTinyFaaSDeployTest(t)
+
+	projectDir := t.TempDir()
+	distDir := filepath.Join(projectDir, "dist")
+	if err := os.Mkdir(distDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(distDir, "fn.tar")
+	if err := os.WriteFile(archivePath, []byte("oci archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stackYAML := strings.Join([]string{
+		"provider:",
+		"  name: openfaas",
+		"functions:",
+		"  archive-function:",
+		"    lang: dockerfile",
+		"    image: ./dist/fn.tar",
+	}, "\n")
+	stackPath := filepath.Join(projectDir, "stack.yml")
+	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server, getCount, postCount, putCount := newFaasdArchiveDeployServer(t, "archive-function", true)
+	defer server.Close()
+
+	var err error
+	stdOut := test.CaptureStdout(func() {
+		faasCmd.SetArgs([]string{
+			"deploy",
+			"--platform=faasd",
+			"--read-template=false",
+			"--update=true",
+			"--gateway=" + server.URL,
+			"--yaml=" + stackPath,
+		})
+		err = faasCmd.Execute()
+	})
+
+	if err != nil {
+		t.Fatalf("expected archive update to succeed, got error: %v", err)
+	}
+	if *getCount != 1 {
+		t.Fatalf("expected 1 function existence check, got %d", *getCount)
+	}
+	if *postCount != 0 {
+		t.Fatalf("expected no create requests, got %d", *postCount)
+	}
+	if *putCount != 1 {
+		t.Fatalf("expected 1 update request, got %d", *putCount)
+	}
+	if !strings.Contains(stdOut, "Function archive-function already exists, attempting rolling-update.") {
+		t.Fatalf("expected rolling update output, got: %s", stdOut)
 	}
 }
