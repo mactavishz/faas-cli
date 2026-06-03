@@ -86,10 +86,15 @@ func BuildImageWithPlatforms(image string, handler string, functionName string, 
 	}
 
 	archiveOutput := isLocalImageArchive(image)
+	archiveOutputPath := image
 	imageName := schema.BuildImageName(tagFormat, image, version, branch)
 	if archiveOutput {
 		imageName = localArchiveImageRef(functionName)
 		platforms = resolveArchiveBuildPlatforms(platforms)
+		archiveOutputPath, err = prepareLocalArchiveOutput(image)
+		if err != nil {
+			return err
+		}
 	}
 
 	buildOptPackages, err := getBuildOptionPackages(buildOptions, language, langTemplate.BuildOptions)
@@ -167,14 +172,11 @@ func BuildImageWithPlatforms(image string, handler string, functionName string, 
 			BuildLabelMap: buildLabelMap,
 			ForcePull:     forcePull,
 			Platforms:     platforms,
-			Output:        image,
+			Output:        archiveOutputPath,
 		}
 
 		command, args := getDockerBuildCommand(dockerBuildVal)
 		if archiveOutput {
-			if err := os.MkdirAll(filepath.Dir(image), 0o755); err != nil {
-				return fmt.Errorf("create image archive directory: %w", err)
-			}
 			command, args, err = getImageArchiveBuildCommand(dockerBuildVal, os.Getenv(buildEngineEnv))
 			if err != nil {
 				return err
@@ -356,6 +358,17 @@ func resolveArchiveBuildPlatforms(platforms string) string {
 		return platforms
 	}
 	return defaultArchiveTarget
+}
+
+func prepareLocalArchiveOutput(image string) (string, error) {
+	archivePath, err := filepath.Abs(filepath.FromSlash(image))
+	if err != nil {
+		return "", fmt.Errorf("resolve image archive path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+		return "", fmt.Errorf("create image archive directory: %w", err)
+	}
+	return archivePath, nil
 }
 
 func isLocalImageArchive(image string) bool {

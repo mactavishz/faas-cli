@@ -157,10 +157,11 @@ func Test_getDockerBuildCommand_WithBuildArg(t *testing.T) {
 }
 
 func Test_getImageArchiveBuildCommand_DefaultsToDockerBuildx(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "dist", "fn.tar")
 	dockerBuildVal := dockerBuild{
 		Image:       "faasd.local/fn:latest",
 		Platforms:   "linux/amd64,linux/arm64",
-		Output:      "./dist/fn.tar",
+		Output:      output,
 		BuildArgMap: make(map[string]string),
 	}
 
@@ -169,7 +170,7 @@ func Test_getImageArchiveBuildCommand_DefaultsToDockerBuildx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "buildx build --progress=plain --platform=linux/amd64,linux/arm64 --output=type=oci,dest=./dist/fn.tar --tag faasd.local/fn:latest ."
+	want := "buildx build --progress=plain --platform=linux/amd64,linux/arm64 --output=type=oci,dest=" + output + " --tag faasd.local/fn:latest ."
 	if got := strings.Join(args, " "); got != want {
 		t.Fatalf("archive build args = %q, want %q", got, want)
 	}
@@ -179,10 +180,11 @@ func Test_getImageArchiveBuildCommand_DefaultsToDockerBuildx(t *testing.T) {
 }
 
 func Test_getImageArchiveBuildCommand_Nerdctl(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "dist", "fn.tar")
 	dockerBuildVal := dockerBuild{
 		Image:       "faasd.local/fn:latest",
 		Platforms:   "linux/amd64",
-		Output:      "./dist/fn.tar",
+		Output:      output,
 		BuildArgMap: make(map[string]string),
 	}
 
@@ -191,7 +193,7 @@ func Test_getImageArchiveBuildCommand_Nerdctl(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "build --progress=plain --platform=linux/amd64 --output=type=oci,dest=./dist/fn.tar --tag faasd.local/fn:latest ."
+	want := "build --progress=plain --platform=linux/amd64 --output=type=oci,dest=" + output + " --tag faasd.local/fn:latest ."
 	if got := strings.Join(args, " "); got != want {
 		t.Fatalf("archive build args = %q, want %q", got, want)
 	}
@@ -207,6 +209,40 @@ func Test_getImageArchiveBuildCommand_RejectsUnsupportedEngine(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported FAAS_CLI_BUILD_ENGINE") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func Test_prepareLocalArchiveOutput(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+
+	got, err := prepareLocalArchiveOutput("./dist/fn.tar")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want, err := filepath.Abs(filepath.Join("dist", "fn.tar"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("archive output path = %q, want %q", got, want)
+	}
+	if info, err := os.Stat(filepath.Join(tempDir, "dist")); err != nil {
+		t.Fatalf("expected archive parent directory to exist: %v", err)
+	} else if !info.IsDir() {
+		t.Fatalf("archive parent is not a directory")
 	}
 }
 
