@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/openfaas/go-sdk/stack"
@@ -220,7 +221,12 @@ func (c *Client) deploy(context context.Context, spec *DeployFunctionSpec, updat
 	default:
 		bytesOut, err := io.ReadAll(res.Body)
 		if err == nil {
-			deployOutput += fmt.Sprintf("Unexpected status: %d, message: %s\n", res.StatusCode, string(bytesOut))
+			message := strings.TrimSpace(string(bytesOut))
+			if message != "" {
+				deployOutput += fmt.Sprintf("Unexpected status: %d, message: %s\n", res.StatusCode, message)
+			} else {
+				deployOutput += fmt.Sprintf("Unexpected status: %d\n", res.StatusCode)
+			}
 		}
 	}
 
